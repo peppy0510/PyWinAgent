@@ -1,0 +1,374 @@
+<!doctype html>
+<html>
+
+<head>
+<meta charset="utf-8">
+<title>Usage</title>
+
+<style>
+:root {
+    color-scheme: dark;
+    --bg: #1b1d21;
+    --face: #25282d;
+    --rim: #3a3f46;
+    --text: #e6e9ed;
+    --dim: #8b929b;
+    --accent: #4c9aff;
+    --mint: #3fd6a0;
+    --grid: #2b2f35;
+    --warn: #e2a03f;
+    --close: #c42b1c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 16px 16px 20px;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px "Segoe UI", sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    overflow-x: hidden;
+}
+
+h2 {
+    margin: 0 0 8px 3px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+h2 + .card { margin-bottom: 14px; }
+
+.card {
+    background: var(--face);
+    border: 1px solid var(--rim);
+    border-radius: 6px;
+    padding: 12px 14px;
+}
+
+.caption {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    color: var(--dim);
+}
+
+/* 오늘 --------------------------------------------------------------- */
+.today { display: flex; justify-content: space-between; }
+.today .right { text-align: right; }
+.today .value { margin: 2px 0; font-size: 15px; font-weight: 700; }
+.today .note { font-size: 11px; color: var(--dim); }
+.today .right .caption,
+.today .right .note { color: var(--mint); }
+
+/* 한도 --------------------------------------------------------------- */
+.limit + .limit { margin-top: 14px; }
+.limit .head { display: flex; align-items: baseline; gap: 8px; }
+.limit .name { font-size: 12px; }
+.limit .when { flex: 1; font-size: 11px; color: var(--dim); }
+.limit .pct { font-weight: 600; }
+.limit .bar {
+    margin-top: 5px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--grid);
+    overflow: hidden;
+}
+.limit .bar > i { display: block; height: 100%; border-radius: 3px; }
+
+/* 추세 --------------------------------------------------------------- */
+#trend { display: block; width: 100%; height: 106px; }
+
+/* 활동 --------------------------------------------------------------- */
+#heat { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; }
+#heat .row-label,
+#heat .hour-label { font-size: 9px; color: var(--dim); line-height: 1; }
+#heat .cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+#heat .cells > i { display: block; aspect-ratio: 1; border-radius: 1.5px; }
+#heat .hours { display: grid; grid-template-columns: repeat(24, 1fr); }
+#heat .row-label { align-self: center; }
+
+.legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+    margin-top: 8px;
+    font-size: 9px;
+    color: var(--dim);
+}
+.legend i { display: block; width: 8px; height: 8px; border-radius: 1.5px; }
+.legend span:first-child { margin-right: 3px; }
+.legend span:last-child { margin-left: 3px; }
+
+/* 새로고침 ----------------------------------------------------------- */
+.action { display: flex; align-items: center; justify-content: space-between; }
+.action .note { font-size: 11px; color: var(--dim); }
+button {
+    padding: 5px 16px;
+    border: 0;
+    border-radius: 5px;
+    background: var(--accent);
+    color: #fff;
+    font: 600 12px "Segoe UI", sans-serif;
+    cursor: pointer;
+}
+button:hover { filter: brightness(1.16); }
+button:active { filter: brightness(0.85); }
+button[disabled] { filter: none; opacity: 0.5; cursor: default; }
+
+.empty { padding: 6px 0; color: var(--dim); font-size: 12px; text-align: center; }
+
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 5px;
+    background: var(--rim);
+    background-clip: content-box;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Today</h2>
+<div class="card today">
+    <div>
+        <div class="caption">TODAY COST</div>
+        <div class="value" id="cost">—</div>
+        <div class="note" id="calls"></div>
+    </div>
+    <div class="right">
+        <div class="caption">CACHE EFFICIENCY</div>
+        <div class="value" id="ratio">—</div>
+        <div class="note" id="saved"></div>
+    </div>
+</div>
+
+<h2>Plan limits</h2>
+<div class="card" id="limits"><div class="empty">reading…</div></div>
+
+<h2>Trend</h2>
+<div class="card"><svg id="trend"></svg></div>
+
+<h2>Activity</h2>
+<div class="card">
+    <div id="heat"></div>
+    <div class="legend">
+        <span>less</span><span id="ramp"></span><span>more</span>
+    </div>
+</div>
+
+<div class="card action">
+    <div>
+        <div>Refresh</div>
+        <div class="note">Ask ccusage again and re-read the records</div>
+    </div>
+    <button id="reload">Reload</button>
+</div>
+
+<script>
+'use strict';
+
+var LEVELS = 4;
+var latest = null;
+
+function send(message) {
+    window.chrome.webview.postMessage(message);
+}
+
+function setTheme(theme) {
+    var root = document.documentElement;
+    Object.keys(theme).forEach(function (key) {
+        root.style.setProperty('--' + key, theme[key]);
+    });
+    root.style.colorScheme = theme.dark ? 'dark' : 'light';
+    if (latest) { render(latest); }
+}
+
+/* 칸 하나가 유난히 바쁘면 나머지가 다 같은 색이 된다. 제곱근으로 눌러 편다. */
+function level(count, peak) {
+    if (!count) { return 0; }
+    return Math.max(1, Math.min(LEVELS, Math.round(Math.sqrt(count / peak) * LEVELS)));
+}
+
+function shade(level) {
+    if (!level) { return 'color-mix(in srgb, var(--face) 70%, var(--grid))'; }
+    var ratio = Math.round(level / LEVELS * 100);
+    return 'color-mix(in srgb, var(--accent) ' + ratio + '%, var(--grid))';
+}
+
+function money(value, digits) {
+    return '$' + value.toLocaleString('en-US', {
+        minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0});
+}
+
+function count(value) {
+    return value >= 1000 ? (value / 1000).toFixed(1) + 'K' : String(value);
+}
+
+function drawToday(data) {
+    document.getElementById('cost').textContent = money(data.cost);
+    document.getElementById('calls').textContent =
+        count(data.calls) + ' calls  /  ' + data.sessions + ' sessions';
+    document.getElementById('ratio').textContent = Math.round(data.ratio * 100) + '%';
+    document.getElementById('saved').textContent = '+ ' + money(data.saved) + ' saved today';
+}
+
+function drawLimits(limits) {
+    var host = document.getElementById('limits');
+    if (limits === null) {
+        host.innerHTML = '<div class="empty">plan limits unavailable — sign in again</div>';
+        return;
+    }
+    if (!limits.length) {
+        host.innerHTML = '<div class="empty">nothing running against a limit</div>';
+        return;
+    }
+    host.innerHTML = limits.map(function (limit) {
+        var tint = limit.severity === 'critical' ? 'var(--close)'
+            : limit.severity === 'warning' ? 'var(--warn)' : 'var(--accent)';
+        return '<div class="limit">' +
+            '<div class="head"><span class="name"></span>' +
+            '<span class="when"></span>' +
+            '<span class="pct" style="color:' + tint + '"></span></div>' +
+            '<div class="bar"><i style="width:' + Math.min(100, limit.percent) +
+            '%;background:' + tint + '"></i></div></div>';
+    }).join('');
+    // 이름과 남은 시간은 서버가 준 글자라 innerHTML 로 심지 않는다.
+    var rows = host.querySelectorAll('.limit');
+    limits.forEach(function (limit, index) {
+        rows[index].querySelector('.name').textContent = limit.name;
+        rows[index].querySelector('.when').textContent = limit.when;
+        rows[index].querySelector('.pct').textContent = limit.percent + '%';
+    });
+}
+
+function drawTrend(points) {
+    var svg = document.getElementById('trend');
+    while (svg.firstChild) { svg.removeChild(svg.firstChild); }
+    if (points.length < 2) { return; }
+
+    /* ★viewBox 를 늘리지 않고 실제 픽셀로 그린다. preserveAspectRatio 로 늘리면
+       점이 타원이 되고 글자가 넓적해진다. */
+    var width = svg.clientWidth;
+    var height = svg.clientHeight;
+    if (!width) { return; }
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+
+    var top = 10;
+    var floor = height - 18;
+    /* ★눈금 글자를 그림 위에 얹으면 선이 낮게 지나는 날 겹친다. 왼쪽에 글자만
+       쓰는 여백을 두고 그림은 그 오른쪽에서 시작한다. */
+    var gutter = 34;
+    var left = gutter;
+    var right = width - 4;
+    var peak = Math.max.apply(null, points.map(function (p) { return p[1]; })) || 1;
+    var step = (right - left) / (points.length - 1);
+
+    function node(name, attrs, text) {
+        var element = document.createElementNS('http://www.w3.org/2000/svg', name);
+        Object.keys(attrs).forEach(function (key) {
+            element.setAttribute(key, attrs[key]);
+        });
+        if (text !== undefined) { element.textContent = text; }
+        svg.appendChild(element);
+        return element;
+    }
+
+    [0, 0.5, 1].forEach(function (ratio) {
+        var y = Math.round(top + (floor - top) * ratio) + 0.5;
+        node('line', {x1: left, y1: y, x2: right, y2: y,
+                      stroke: 'var(--grid)', 'stroke-width': 1});
+    });
+
+    node('text', {x: gutter - 8, y: top + 3, fill: 'var(--dim)', 'font-size': 9,
+                  'text-anchor': 'end'}, money(peak));
+    node('text', {x: gutter - 8, y: floor + 3, fill: 'var(--dim)', 'font-size': 9,
+                  'text-anchor': 'end'}, '$0');
+    node('text', {x: left, y: height - 4, fill: 'var(--dim)', 'font-size': 9},
+         points[0][0].slice(5).replace('-', '/'));
+    node('text', {x: right, y: height - 4, fill: 'var(--dim)', 'font-size': 9,
+                  'text-anchor': 'end'},
+         points[points.length - 1][0].slice(5).replace('-', '/'));
+
+    var places = points.map(function (point, index) {
+        return [left + step * index, floor - point[1] / peak * (floor - top)];
+    });
+    node('polyline', {
+        points: places.map(function (p) { return p[0] + ',' + p[1]; }).join(' '),
+        fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2,
+        'stroke-linejoin': 'round', 'stroke-linecap': 'round'});
+    places.forEach(function (place, index) {
+        var last = index === places.length - 1;
+        node('circle', {cx: place[0], cy: place[1], r: last ? 4 : 3,
+                        fill: last ? 'var(--accent)' : 'var(--face)',
+                        stroke: 'var(--accent)', 'stroke-width': 2});
+    });
+}
+
+function drawHeat(data) {
+    var host = document.getElementById('heat');
+    var peak = 1;
+    data.days.forEach(function (day, row) {
+        data.hours[row].forEach(function (value) { peak = Math.max(peak, value); });
+    });
+
+    var html = '<span></span><div class="hours">';
+    for (var hour = 0; hour < 24; hour += 1) {
+        html += '<span class="hour-label">' +
+            (hour % 6 === 0 ? hour : '') + '</span>';
+    }
+    html += '</div>';
+
+    data.days.forEach(function (day, row) {
+        html += '<span class="row-label">' + day.slice(5).replace('-', '/') +
+            '</span><div class="cells">';
+        data.hours[row].forEach(function (value) {
+            html += '<i style="background:' + shade(level(value, peak)) + '"></i>';
+        });
+        html += '</div>';
+    });
+    host.innerHTML = html;
+
+    var ramp = '';
+    for (var index = 0; index <= LEVELS; index += 1) {
+        ramp += '<i style="background:' + shade(index) + '"></i>';
+    }
+    document.getElementById('ramp').innerHTML =
+        '<span style="display:flex;gap:3px">' + ramp + '</span>';
+}
+
+function render(data) {
+    latest = data;
+    document.getElementById('reload').disabled = false;
+    document.getElementById('reload').textContent = 'Reload';
+    drawToday(data);
+    drawLimits(data.limits);
+    drawTrend(data.trend);
+    drawHeat(data);
+}
+
+function busy() {
+    var button = document.getElementById('reload');
+    button.disabled = true;
+    button.textContent = '…';
+}
+
+document.getElementById('reload').addEventListener('click', function () {
+    busy();
+    send('reload');
+});
+
+window.addEventListener('resize', function () {
+    if (latest) { drawTrend(latest.trend); }
+});
+
+send('ready');
+</script>
+
+</body>
+
+</html>
