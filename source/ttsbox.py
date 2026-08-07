@@ -53,6 +53,7 @@ SLIDERS = {
 }
 
 SWITCHES = {
+    'notify': ('Speak notifications', 'Read each finished reply aloud'),
     'trim_silence': ('Trim silence', 'Cut the quiet edges off each chunk'),
     'reverb': ('Reverb', 'Add a small room around the voice'),
 }
@@ -118,6 +119,11 @@ class TtsBox(ScrollArea):
     def build(self):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddSpacer(MARGIN)
+
+        # 소리를 낼지 말지가 먼저다. 나머지는 낸다고 했을 때의 이야기라 뒤에 둔다.
+        self.add_title(sizer, 'Notifications')
+        sizer.Add(self.cards['notify'], 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
+        sizer.AddSpacer(GROUP_GAP)
 
         self.add_title(sizer, 'Voice')
         sizer.Add(self.grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)

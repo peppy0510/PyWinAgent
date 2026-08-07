@@ -41,7 +41,7 @@ CREDENTIALS = (
 
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
 
-TREND_DAYS = 17
+TREND_DAYS = 60
 HEATMAP_DAYS = 7
 
 # 백만 토큰당 (입력, 출력, 캐시 쓰기, 캐시 읽기).

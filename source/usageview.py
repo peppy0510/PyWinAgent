@@ -58,12 +58,16 @@ def build_payload(data):
 class UsageView(wx.Panel):
 
     def __init__(self, parent, theme):
-        super().__init__(parent)
+        super().__init__(parent, style=wx.BORDER_NONE)
         self.theme = theme
         self.loading = False
         self.ready = False
+        self.SetBackgroundColour(wx.Colour(theme['bg']))
 
-        self.view = wx.html2.WebView.New(self, backend=get_backend())
+        # ★테두리를 끄지 않으면 컨트롤 둘레에 회색+흰색 1px 이 둘러 나온다.
+        # 캔버스 페이지엔 없는 자국이라 창이 유리에 끼운 것처럼 보인다.
+        self.view = wx.html2.WebView.New(self, backend=get_backend(),
+                                         style=wx.BORDER_NONE)
         self.view.EnableContextMenu(False)
         # ★핸들러는 SetPage 보다 먼저 걸어야 한다. 나중에 걸면 페이지가 뜨면서
         # 보내는 첫 메시지를 통째로 놓친다.

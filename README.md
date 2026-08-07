@@ -10,7 +10,8 @@ so the start menu link runs `pythonw.exe` against the sources directly.
 
 ## Features
 
-- **TTS** — every knob `agent-toolkit/tts/speak.ps1` reads, on one scrolling page. The
+- **TTS** — a master switch for spoken notifications, then every knob
+  `agent-toolkit/tts/speak.ps1` reads, on one scrolling page. The
   voice is picked from a grid of chips filled from the running Supertonic server, so cloned
   voices appear beside the ten built-in ones; when the server is down the page says so and
   falls back to the built-ins. **Preview** saves and then hands the sample line to
@@ -24,6 +25,18 @@ so the start menu link runs `pythonw.exe` against the sources directly.
 Values are written back to `agent-toolkit/tts/settings.json` over the WSL share. Nothing
 needs restarting: the notification hook spawns `speak.ps1` fresh each time and it re-reads
 the file, so a change is live from the next utterance.
+
+## Turning the voice off
+
+**Speak notifications** writes `notify` into the same settings file, and the guard that reads
+it lives in `agent-toolkit/tts/hook.ps1`, not here — that is the script Claude Code runs when a
+reply finishes, and it is the only thing that speaks without being asked. The read-aloud hotkey
+and this app's own Preview call `speak.ps1` directly and keep working while the switch is off,
+because pressing a hotkey *is* the request.
+
+The guard is `$cfg.notify -ne $false`, so a settings file with no `notify` key still speaks.
+An installation that never opens this app must not fall silent because a key it has never heard
+of is missing.
 
 ## Handling of the settings file
 
@@ -67,7 +80,7 @@ python source\makeshortcut.py
 | `source/ttsbox.py` | TTS settings page: voice grid, preview and the value cards |
 | `source/ttsconfig.py` | Reads and writes the toolkit's TTS settings; voice list; preview |
 | `source/usageview.py` | Usage page as a WebView — the one currently wired up |
-| `source/usage.htm` | The usage dashboard itself: HTML, CSS and an SVG trend chart |
+| `source/usage.htm` | The usage dashboard itself: HTML, CSS and the candle chart |
 | `source/usagebox.py` | The same page drawn on canvas — swap it back in from `mainapp` |
 | `source/usagedata.py` | Runs `ccusage` and scans the session records for what it lacks |
 | `source/settingsbox.py` | Settings page of cards, opened from the side menu |
@@ -86,8 +99,8 @@ instance runs at a time (`wininstance.has_running_instance`).
 
 ## Where the usage numbers come from
 
-Cost and tokens come from `ccusage`, which is fast enough to call on demand — seventeen days
-of dailies come back in about a second. Everything it does not report is counted straight
+Cost and tokens come from `ccusage`, which is fast enough to call on demand — two months of
+dailies come back in about a second. Everything it does not report is counted straight
 out of `~/.claude/projects/**/*.jsonl` with one regex per line; a week of records is 370 MB
 and scans in well under a second, so there is no index to build or invalidate.
 
@@ -109,6 +122,19 @@ but running `claude` in WSL renews the one it uses.
 
 Not carried over from WhereMyTokens: the green *net lines* series, which needs git statistics
 collected across every sibling repository, and the live session panel.
+
+## The trend chart
+
+The trend is `TimeGraph` from itruck-service's comjs, ported to plain markup. Bars sit flush
+against each other and grow from the bottom, the tallest value is the full height, and two
+label plates hang off the top corners — the current value on the left, `Peak:` on the right —
+with the graphic padded down so the bars never run under them. No charting library, there or
+here. Only the colours changed: comjs draws light-theme greys, so the bars became a muted
+accent with today's bar at full strength, since otherwise there is no telling which one is now.
+
+The candle chart from [honeypot](https://github.com/peppy0510/honeypot) was tried first and
+dropped. Candles need four numbers a period and a day has one, so the open had to be faked
+from the previous day's close and the wicks were always zero — a bar chart wearing a costume.
 
 ## Two Usage pages
 
