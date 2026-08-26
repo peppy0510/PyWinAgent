@@ -37,9 +37,11 @@ def get_source_path():
 def has_running_instance():
     pid = int(os.getpid())
     source = get_source_path()
+    # a venv launches through Scripts\python.exe, which shares our name and cwd
+    ancestors = {p.pid for p in psutil.Process(pid).parents()}
 
     for p in psutil.process_iter():
-        if p.pid == pid or not has_process_authority(p):
+        if p.pid == pid or p.pid in ancestors or not has_process_authority(p):
             continue
 
         if hasattr(sys, '_MEIPASS'):
