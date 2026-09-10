@@ -28,7 +28,14 @@ TITLEBAR_HEIGHT = 32
 CAPTION_WIDTH = 46
 
 GWL_STYLE = -16
+WS_CAPTION = 0x00C00000
 WS_CLIPSIBLINGS = 0x04000000
+
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+SWP_FRAMECHANGED = 0x0020
 
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
@@ -109,6 +116,22 @@ def apply_titlebar_theme(window, theme):
         width, height = window.GetSize()
         window.SetSize(width, height + 1)
         window.SetSize(width, height)
+
+
+def apply_no_caption(window):
+    """wxCAPTION 을 뺀 스타일로 만들어도 wxWidgets 3.3 부터는 WS_CAPTION 이 그대로
+    붙는다(3.2 까지는 빠졌다). 시스템 캡션이 우리가 그리는 헤더 위에 한 줄 더 얹히고,
+    두꺼워진 띠를 헤더가 제 높이로 착각해 글리프가 위로 잘린다. 떼고 나면 남는 것은
+    위쪽 7px 짜리 크기 조절 띠뿐이다."""
+    try:
+        handle = wintypes.HWND(window.GetHandle())
+        style = ctypes.windll.user32.GetWindowLongW(handle, GWL_STYLE)
+        ctypes.windll.user32.SetWindowLongW(handle, GWL_STYLE, style & ~WS_CAPTION)
+        ctypes.windll.user32.SetWindowPos(handle, 0, 0, 0, 0, 0,
+                                          SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER |
+                                          SWP_NOACTIVATE | SWP_FRAMECHANGED)
+    except Exception:
+        pass
 
 
 def apply_clip_siblings(window):
