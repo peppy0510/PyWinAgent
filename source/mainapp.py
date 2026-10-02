@@ -215,6 +215,8 @@ class MainFrame(wx.Frame):
                                   rate=self.settingsbox.get_rate(),
                                   sections=self.settingsbox.get_sections(),
                                   wide=values['wide_layout'])
+        self.settingsbox.set_wide(values['wide_layout'])
+        self.ttsbox.set_wide(values['wide_layout'])
         if values['compact_widget'] and self.widget is None:
             self.widget = QuotaWidget(self, theme, self.widget_position)
             if self.last_data:

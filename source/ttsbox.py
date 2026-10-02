@@ -119,32 +119,33 @@ class TtsBox(ScrollArea):
         sizer.AddSpacer(TITLE_GAP)
 
     def build(self):
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.AddSpacer(TOP_MARGIN)
+        # 묶음마다 세로 사이저 하나. 넓은 창에서는 여러 단으로 나눠 담긴다 (Wide layout).
+        groups = []
 
         # 소리를 낼지 말지가 먼저다. 나머지는 낸다고 했을 때의 이야기라 뒤에 둔다.
+        sizer = wx.BoxSizer(wx.VERTICAL)
         self.add_title(sizer, 'Notifications')
         sizer.Add(self.cards['notify'], 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
         sizer.AddSpacer(GROUP_GAP)
-
-        self.add_title(sizer, 'Voice')
-        sizer.Add(self.grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-        sizer.AddSpacer(CARD_GAP)
-        sizer.Add(self.status, 0, wx.LEFT | wx.RIGHT, MARGIN + TITLE_INSET)
-        sizer.AddSpacer(CARD_GAP * 2)
-        sizer.Add(self.preview, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
+        groups.append(sizer)
 
         for title, keys in GROUPS:
-            # 첫 묶음의 제목은 보이스 격자가 이미 달고 있다.
-            if title != 'Voice':
-                sizer.AddSpacer(GROUP_GAP)
-                self.add_title(sizer, title)
-            for key in keys:
+            sizer = wx.BoxSizer(wx.VERTICAL)
+            self.add_title(sizer, title)
+            if title == 'Voice':
+                sizer.Add(self.grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
                 sizer.AddSpacer(CARD_GAP)
+                sizer.Add(self.status, 0, wx.LEFT | wx.RIGHT, MARGIN + TITLE_INSET)
+                sizer.AddSpacer(CARD_GAP * 2)
+                sizer.Add(self.preview, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
+            for index, key in enumerate(keys):
+                if index or title == 'Voice':
+                    sizer.AddSpacer(CARD_GAP)
                 sizer.Add(self.cards[key], 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
+            sizer.AddSpacer(GROUP_GAP)
+            groups.append(sizer)
 
-        sizer.AddSpacer(GROUP_GAP)
-        self.content.SetSizer(sizer)
+        self.set_groups(TOP_MARGIN, groups)
 
     def apply_theme(self, theme):
         self.set_theme(theme)

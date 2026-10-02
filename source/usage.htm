@@ -57,26 +57,12 @@ h2 .tail { margin-left: auto; font-weight: 400; }
 
 section { margin-bottom: 14px; }
 
-/* 넓은 창에서는 묶음을 격자로 편다 (설정의 Wide layout 이 켜져 있을 때만).
-   차례는 왼쪽에서 오른쪽, 위에서 아래 — 설정에서 정한 순서 그대로 읽힌다.
-   카드는 내용 높이 그대로 둔다 (한 줄의 키를 맞추면 짧은 카드 안에 빈자리가 생긴다).
-   머리판은 늘 한 줄을 다 쓴다. */
-@media (min-width: 820px) {
-    html.wide #sections {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        align-items: start;
-        gap: 14px 16px;
-        margin-bottom: 14px;
-    }
-    html.wide #sections > section { margin-bottom: 0; min-width: 0; }
-    /* 머리판과 Refresh 도 격자의 한 칸이다. 제목이 없는 둘은 제목 자리(22px + 8px)만큼
-       카드를 내려 옆 카드의 윗선과 맞춘다. */
-    html.wide #sections > section[data-id="refresh"] { padding-top: 30px; }
-}
-@media (min-width: 1240px) {
-    html.wide #sections { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+/* 넓은 창에서는 묶음을 여러 단으로 편다 (설정의 Wide layout 이 켜져 있을 때만).
+   신문·문서의 단처럼 첫 단을 위에서 아래로 채우고 다음 단으로 넘어간다. 차례는
+   설정 그대로, 끊는 자리는 단 높이가 가장 고르게 되는 곳 (layoutSections). 단 수는
+   폭이 정한다: 820px 부터 2단, 1240px 부터 3단. */
+#sections.masonry { display: flex; align-items: flex-start; gap: 16px; }
+#sections.masonry > .masonry-column { flex: 1; min-width: 0; }
 
 .card {
     background: var(--face);
@@ -649,6 +635,7 @@ var SKELETON = {
 document.querySelectorAll('[data-skeleton]').forEach(function (host) {
     host.innerHTML = SKELETON[host.getAttribute('data-skeleton')]();
 });
+setTimeout(layoutSections, 0);
 
 function drawControls() {
     document.querySelectorAll('[data-control]').forEach(function (host) {
@@ -1118,24 +1105,101 @@ function drawModels(models) {
 }
 
 /* 묶음 순서·숨김은 설정에서 온다. */
+var sectionOrder = null;
+
 function arrangeSections(sections, wide) {
     document.documentElement.classList.toggle('wide', wide !== false);
-    if (!sections) { return; }
+    if (sections) {
+        sectionOrder = sections;
+        sections.forEach(function (item) {
+            var node = document.querySelector('section[data-id="' + item.id + '"]');
+            if (node) { node.hidden = !!item.hidden; }
+        });
+    }
+    layoutSections();
+}
+
+function getColumnCount() {
+    if (!document.documentElement.classList.contains('wide')) { return 1; }
+    return innerWidth >= 1240 ? 3 : innerWidth >= 820 ? 2 : 1;
+}
+
+/* 차례를 지킨 채 count 개의 단으로 끊는다. 가장 높은 단이 가장 낮아지는 자리를
+   다 따져 고른다 (묶음이 열 개 안쪽이라 전부 따져도 순식간이다).
+   돌려주는 것은 단마다 첫 묶음의 자리. */
+function splitColumns(heights, count) {
+    var n = heights.length;
+    var prefix = [0];
+    heights.forEach(function (h, i) { prefix.push(prefix[i] + h); });
+    var best = [], cut = [];
+    for (var c = 0; c <= count; c += 1) { best.push([]); cut.push([]); }
+    for (var i = 0; i <= n; i += 1) { best[1][i] = prefix[i]; cut[1][i] = 0; }
+    for (c = 2; c <= count; c += 1) {
+        for (i = 0; i <= n; i += 1) {
+            best[c][i] = Infinity;
+            for (var j = 0; j <= i; j += 1) {
+                var worst = Math.max(best[c - 1][j], prefix[i] - prefix[j]);
+                // 같으면 뒤쪽에서 끊는다. 묶음이 단보다 적을 때 빈 단이 앞이 아니라 끝에 남게.
+                if (worst <= best[c][i]) { best[c][i] = worst; cut[c][i] = j; }
+            }
+        }
+    }
+    var starts = [], end = n;
+    for (c = count; c >= 1; c -= 1) { starts.unshift(cut[c][end]); end = cut[c][end]; }
+    return starts;
+}
+
+/* 묶음을 단에 나눠 담는다. 머리판이 맨 앞, Refresh 가 맨 끝, 그 사이는 설정의 차례. */
+function layoutSections() {
     var host = el('sections');
     var nodes = {};
     host.querySelectorAll('section[data-id]').forEach(function (node) {
         nodes[node.getAttribute('data-id')] = node;
     });
-    if (nodes.header) { host.appendChild(nodes.header); }
-    sections.forEach(function (item) {
-        var node = nodes[item.id];
-        if (!node) { return; }
-        node.hidden = !!item.hidden;
-        host.appendChild(node);
+    var middle = sectionOrder ? sectionOrder.map(function (item) { return item.id; })
+        : Object.keys(nodes).filter(function (id) { return id !== 'header' && id !== 'refresh'; });
+    var order = ['header'].concat(middle, ['refresh']).filter(function (id) { return nodes[id]; });
+    Object.keys(nodes).forEach(function (id) { if (order.indexOf(id) < 0) { order.push(id); } });
+
+    var count = getColumnCount();
+    var columns = [].slice.call(host.querySelectorAll(':scope > .masonry-column'));
+    if (count === 1) {
+        order.forEach(function (id) { host.appendChild(nodes[id]); });
+        columns.forEach(function (column) { column.remove(); });
+        host.classList.remove('masonry');
+        return;
+    }
+    host.classList.add('masonry');
+    while (columns.length < count) {
+        var column = document.createElement('div');
+        column.className = 'masonry-column';
+        host.appendChild(column);
+        columns.push(column);
+    }
+    while (columns.length > count) { columns.pop().remove(); }
+    // 단 폭에서 키를 재야 한다. 다 첫 단에 담아 놓고 하나씩 잰다 (아래 여백 포함).
+    var shown = order.filter(function (id) { return !nodes[id].hidden; });
+    shown.forEach(function (id) { columns[0].appendChild(nodes[id]); });
+    var heights = shown.map(function (id) {
+        var node = nodes[id];
+        return node.offsetHeight + (parseFloat(getComputedStyle(node).marginBottom) || 0);
     });
-    // Refresh 는 설정의 차례에 없다. 늘 맨 끝.
-    if (nodes.refresh) { host.appendChild(nodes.refresh); }
+    var starts = splitColumns(heights, count);
+    shown.forEach(function (id, index) {
+        var column = 0;
+        starts.forEach(function (start, c) { if (index >= start) { column = c; } });
+        columns[column].appendChild(nodes[id]);
+    });
+    order.forEach(function (id) {
+        if (nodes[id].hidden) { columns[count - 1].appendChild(nodes[id]); }
+    });
 }
+
+var resizeTimer = null;
+window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(layoutSections, 80);
+});
 
 function drawUpdated() {
     if (!latest) { return; }

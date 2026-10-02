@@ -968,6 +968,101 @@ class ScrollArea(wx.Panel):
                     walk(child)
         walk(self.content)
 
+    # 넓은 창에서 묶음을 여러 단으로 펴는 기준 폭 (사용량 페이지와 같다).
+    TWO_COLUMNS = 820
+    THREE_COLUMNS = 1240
+
+    groups = None
+    columns = 0
+    # ★페이지가 'wide' 라는 이름을 따로 쓸 수 있다 (설정의 Wide layout 카드). 겹치지 않게.
+    wide_columns = True
+
+    def set_groups(self, top, groups):
+        '''묶음(제목+카드를 담은 세로 사이저)들을 넘긴다. 폭에 따라 단에 나눠 담는다.'''
+        self.groups = list(groups)
+        self.root = wx.BoxSizer(wx.VERTICAL)
+        self.root.AddSpacer(top)
+        self.row = wx.BoxSizer(wx.HORIZONTAL)
+        self.root.Add(self.row, 0, wx.EXPAND)
+        self.content.SetSizer(self.root)
+        self.columns = 0
+        self.arrange()
+
+    def set_wide(self, wide):
+        if wide != self.wide_columns:
+            self.wide_columns = wide
+            self.arrange()
+
+    def get_column_count(self):
+        width = self.GetClientSize()[0]
+        if not self.wide_columns or width < self.TWO_COLUMNS:
+            return 1
+        return 3 if width >= self.THREE_COLUMNS else 2
+
+    @staticmethod
+    def split_columns(heights, count):
+        '''차례를 지킨 채 count 개의 단으로 끊는다. 가장 높은 단이 가장 낮아지는 자리를
+        다 따져 고른다 (묶음이 열 개 안쪽이라 순식간이다). 단마다 첫 묶음의 자리를 준다.'''
+        prefix = [0]
+        for height in heights:
+            prefix.append(prefix[-1] + height)
+        n = len(heights)
+        best = {1: prefix[:]}
+        cut = {1: [0] * (n + 1)}
+        for c in range(2, count + 1):
+            best[c], cut[c] = [], []
+            for i in range(n + 1):
+                # 같으면 뒤쪽에서 끊는다. 묶음이 단보다 적을 때 빈 단이 앞이 아니라 끝에 남게.
+                choice = min(range(i, -1, -1), key=lambda j: max(best[c - 1][j], prefix[i] - prefix[j]))
+                best[c].append(max(best[c - 1][choice], prefix[i] - prefix[choice]))
+                cut[c].append(choice)
+        starts, end = [], n
+        for c in range(count, 0, -1):
+            starts.insert(0, cut[c][end])
+            end = cut[c][end]
+        return starts
+
+    def arrange(self, force=False):
+        '''문서의 단처럼. 첫 단을 위에서 아래로 채우고 다음 단으로 넘어간다. 차례는
+        그대로, 끊는 자리는 단 높이가 가장 고르게 되는 곳.'''
+        if not self.groups:
+            return
+        count = self.get_column_count()
+        if count == self.columns and not force:
+            return
+        self.columns = count
+        # 키는 단 폭에서 재야 맞다. 보이스 격자처럼 폭 따라 줄이 바뀌는 묶음은 담기 전과
+        # 담은 뒤의 키가 다르다. 한 번 담아 펼친 뒤 다시 재서, 끊는 자리가 바뀌면 다시 담는다.
+        starts = None
+        for _ in range(3):
+            heights = [group.CalcMin()[1] for group in self.groups]
+            fresh = self.split_columns(heights, count)
+            if fresh == starts:
+                break
+            starts = fresh
+            self.fill_columns(starts, count)
+            self.content.SetSize(self.GetClientSize()[0], self.content.GetSize()[1])
+            self.content.Layout()
+        self.fit()
+        self.Refresh()
+
+    def fill_columns(self, starts, count):
+        # 단을 지우기 전에 묶음부터 떼어 낸다. Clear 는 담긴 사이저까지 지운다.
+        for item in list(self.row.GetChildren()):
+            column = item.GetSizer()
+            if column:
+                for group in self.groups:
+                    column.Detach(group)
+        self.row.Clear(delete_windows=False)
+        columns = []
+        for _ in range(count):
+            column = wx.BoxSizer(wx.VERTICAL)
+            self.row.Add(column, 1, wx.EXPAND)
+            columns.append(column)
+        for index, group in enumerate(self.groups):
+            column = max(c for c, start in enumerate(starts) if index >= start)
+            columns[column].Add(group, 0, wx.EXPAND)
+
     def get_extent(self):
         sizer = self.content.GetSizer()
         return sizer.GetMinSize()[1] if sizer else 0
@@ -1009,6 +1104,7 @@ class ScrollArea(wx.Panel):
     def on_size(self, event):
         width, height = self.GetClientSize()
         bar_width = ScrollBar.WIDTH + ScrollBar.INSET * 2
+        self.arrange()
         self.fit()
         self.bar.SetSize(width - bar_width, 0, bar_width, height)
         self.bar.Raise()

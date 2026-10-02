@@ -133,6 +133,12 @@ class SettingsBox(ScrollArea):
         self.projects.Refresh()
         self.hidden.Refresh()
 
+    def add_group(self, title, cards):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        self.add_title(sizer, title)
+        self.add_cards(sizer, cards)
+        return sizer
+
     def add_title(self, sizer, text):
         label = wx.StaticText(self.content, label=text)
         label.SetFont(get_font(10, bold=True))
@@ -148,29 +154,26 @@ class SettingsBox(ScrollArea):
         sizer.AddSpacer(GROUP_GAP)
 
     def build(self):
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.AddSpacer(TOP_MARGIN)
-        groups = (
+        groups = [self.add_group(title, cards) for title, cards in (
             ('Window', (self.ontop,)),
             ('Appearance', (self.theme_choice, self.wide)),
             ('Agents', tuple(self.agents.values())),
             ('Widget', (self.widget,)),
             ('Currency', (self.currency, self.krw, self.cny)),
-        )
-        for title, cards in groups:
-            self.add_title(sizer, title)
-            self.add_cards(sizer, cards)
+        )]
 
-        self.add_title(sizer, 'Main layout')
+        layout = wx.BoxSizer(wx.VERTICAL)
+        self.add_title(layout, 'Main layout')
         self.layout_sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.layout_sizer, 0, wx.EXPAND)
+        layout.Add(self.layout_sizer, 0, wx.EXPAND)
         self.fill_layout()
-        sizer.AddSpacer(CARD_GAP)
-        self.add_cards(sizer, (self.reset_layout,))
+        layout.AddSpacer(CARD_GAP)
+        self.add_cards(layout, (self.reset_layout,))
+        groups.append(layout)
 
-        self.add_title(sizer, 'Data')
-        self.add_cards(sizer, (self.projects, self.hidden, self.reindex))
-        self.content.SetSizer(sizer)
+        groups.append(self.add_group('Data', (self.projects, self.hidden, self.reindex)))
+        # 넓은 창에서는 묶음을 여러 단으로 편다 (Wide layout).
+        self.set_groups(TOP_MARGIN, groups)
 
     def fill_layout(self):
         # Clear 는 사이저 항목만 떼고 카드는 살려 둔다.
