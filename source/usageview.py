@@ -26,8 +26,13 @@ import traceback
 import wx
 import wx.html2
 
+import claudelogin
 import dashboard
 import usageindex
+
+# 로그인 창을 띄운 뒤 새 토큰이 생겼는지 이 간격으로, 이만큼 동안 살핀다.
+LOGIN_POLL_MS = 5000
+LOGIN_POLL_LIMIT = 10 * 60
 
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'usage.htm')
@@ -136,6 +141,35 @@ class UsageView(wx.Panel):
             self.reload(force=True, git=True)
         elif command in ('hide', 'unhide', 'exclude') and argument:
             self.toggle_project(command, argument)
+        elif command == 'claude-login':
+            self.sign_in()
+
+    def sign_in(self):
+        '''Claude 토큰 갱신. 조용한 갱신이 길면 수십 초라 실에서 돌린다.'''
+        self.call('setLoginState', 'working')
+
+        def run():
+            result = claudelogin.sign_in()
+            wx.CallAfter(self.after_sign_in, result)
+        threading.Thread(target=run, daemon=True).start()
+
+    def after_sign_in(self, result):
+        self.call('setLoginState', result)
+        if result == 'refreshed':
+            self.reload(force=True)
+        elif result == 'login':
+            # 사람이 터미널에서 로그인을 마칠 때까지 기다린다. 새 토큰이 보이면 바로 다시 묻는다.
+            self.login_since = time.time()
+            self.login_timer = wx.CallLater(LOGIN_POLL_MS, self.watch_login)
+
+    def watch_login(self):
+        expiry = claudelogin.read_expiry()
+        if expiry and expiry > time.time():
+            self.call('setLoginState', 'refreshed')
+            self.reload(force=True)
+            return
+        if time.time() - self.login_since < LOGIN_POLL_LIMIT:
+            self.login_timer = wx.CallLater(LOGIN_POLL_MS, self.watch_login)
 
     def toggle_project(self, command, project):
         '''Hide 는 세션 목록에서만 감추고, Exclude 는 모든 숫자에서 뺀다.'''

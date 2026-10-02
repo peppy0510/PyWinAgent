@@ -42,18 +42,43 @@ CLAUDE_LIMITS_TTL = 5 * 60
 claude_limits = {'at': 0, 'value': None}
 
 
-def get_claude_limits(fresh):
+def get_claude_limits(index, fresh):
+    '''(한도들, 상태). 물어서 받으면 색인에 남겨 두고, 못 받으면 남겨 둔 것을 '지난 값'으로
+    내준다 (WhereMyTokens 와 같다 — 토큰이 만료돼도 한도 막대가 통째로 사라지지 않게).
+    상태는 못 받았을 때만 {'error': 'expired'|'offline', 'age': 남겨 둔 값의 나이(초)}.'''
     now = time.time()
     if fresh or now - claude_limits['at'] > CLAUDE_LIMITS_TTL:
         claude_limits['value'] = usagedata.get_limits()
+        claude_limits['error'] = usagedata.last_error
         claude_limits['at'] = now
-    value = claude_limits['value']
-    if value is None:
-        return None
-    # 남은 시간은 물은 때 기준이다. 그 뒤 흐른 만큼 뺀다.
-    spent = now - claude_limits['at']
-    return [dict(limit, remains=None if limit['remains'] is None else
-                 max(0, limit['remains'] - spent)) for limit in value]
+        if claude_limits['value'] is not None:
+            index.set_meta('claude_limits', {'at': now, 'limits': [
+                dict(limit, resets_at=None if limit['remains'] is None else now + limit['remains'])
+                for limit in claude_limits['value']]})
+    if claude_limits['value'] is not None:
+        # 남은 시간은 물은 때 기준이다. 그 뒤 흐른 만큼 뺀다.
+        spent = now - claude_limits['at']
+        return [dict(limit, remains=None if limit['remains'] is None else
+                     max(0, limit['remains'] - spent)) for limit in claude_limits['value']], None
+
+    status = {'error': claude_limits.get('error') or 'offline', 'age': None}
+    stored = index.get_meta('claude_limits')
+    if not stored:
+        return None, status
+    status['age'] = now - stored['at']
+    limits = []
+    for limit in stored['limits']:
+        limit = dict(limit, stale=True)
+        resets_at = limit.pop('resets_at', None)
+        if resets_at is None:
+            limit['remains'] = None
+        elif resets_at <= now:
+            # 그 사이 창이 새로 열렸다. 지금 몇 % 인지는 모른다.
+            limit.update(percent=0, remains=None, idle='window reset · waiting for fresh data')
+        else:
+            limit['remains'] = resets_at - now
+        limits.append(limit)
+    return limits, status
 
 
 def get_day(offset=0):
@@ -113,10 +138,12 @@ def get_totals(index, where, args, since_day=None):
 
 
 def get_limits(index, options, fresh=False):
+    '''(한도들, Claude 상태). 한도들이 None 이면 보일 것이 하나도 없다.'''
     limits = []
     failed = False
+    claude_status = None
     if 'claude' in options['agents']:
-        claude = get_claude_limits(fresh)
+        claude, claude_status = get_claude_limits(index, fresh)
         if claude is None:
             failed = True
         else:
@@ -145,8 +172,8 @@ def get_limits(index, options, fresh=False):
         limit['elapsed'] = None if not window or limit['remains'] is None else \
             max(0, min(100, int(round((1 - limit['remains'] / float(window)) * 100))))
     if failed and not limits:
-        return None
-    return limits
+        return None, claude_status
+    return limits, claude_status
 
 
 def get_tool_filter(options):
@@ -335,12 +362,14 @@ def build(index, options, refresh_git=False, fresh_limits=False):
     where, args = get_filter(options)
     today = get_day()
     code, repos = get_code(index, options, refresh_git)
+    limits, claude_status = get_limits(index, options, fresh_limits)
     return {
         'agents': list(options['agents']),
         'claude': 'claude' in options['agents'],
         'today': get_totals(index, where, args, today),
         'all': get_totals(index, where, args),
-        'limits': get_limits(index, options, fresh_limits),
+        'limits': limits,
+        'claude_status': claude_status,
         'plans': get_plans(index, options),
         'daily': get_daily(index, options, where, args),
         'code': code,

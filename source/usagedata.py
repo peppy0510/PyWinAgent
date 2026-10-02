@@ -23,6 +23,7 @@ import re
 import sqlite3
 import subprocess
 import time
+import urllib.error
 import urllib.request
 
 from calendar import timegm
@@ -124,12 +125,22 @@ def get_cache_stats(row):
     return ratio, saved
 
 
+# 마지막으로 한도를 못 물은 까닭. 'expired' 는 로그인 토큰이 다 만료된 것,
+# 'offline' 은 묻기는 했는데 대답을 못 받은 것. 물어서 받았으면 None.
+last_error = None
+
+
 def read_token(path):
+    '''(토큰, 만료됐는지). 만료 시각이 지난 토큰은 서버에 보내 봐야 401 이라 보내지 않는다.'''
     try:
         with open(path, encoding='utf-8') as file:
-            return json.load(file)['claudeAiOauth']['accessToken']
+            oauth = json.load(file)['claudeAiOauth']
     except Exception:
-        return None
+        return None, False
+    expires = oauth.get('expiresAt') or 0
+    if expires and expires / 1000.0 < time.time():
+        return None, True
+    return oauth.get('accessToken'), False
 
 
 def read_plan():
@@ -166,9 +177,11 @@ def ask_limits(token):
         'Accept': 'application/json'})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
-            return json.loads(response.read().decode('utf-8'))
+            return json.loads(response.read().decode('utf-8')), None
+    except urllib.error.HTTPError as error:
+        return None, 'expired' if error.code in (401, 403) else 'offline'
     except Exception:
-        return None
+        return None, 'offline'
 
 
 def get_reset_seconds(stamp):
@@ -184,16 +197,25 @@ def get_reset_seconds(stamp):
 def get_limits():
     '''클로드 클라이언트가 보여 주는 5시간·주간 한도. 못 물으면 None 이다 —
     토큰이 만료되면 401 이 오는데 우리는 갱신할 방법이 없다(그건 로그인 흐름이다).
-    WSL 에서 claude 를 쓰면 그쪽 토큰이 갱신되어 다시 열린다.'''
+    WSL 에서 claude 를 쓰면 그쪽 토큰이 갱신되어 다시 열린다.
+
+    ★토큰을 우리가 갱신하지는 않는다. refresh token 은 쓰면 바뀌어서 Claude Code 가
+    쥔 것이 무효가 되고, 그쪽 로그인이 풀린다.'''
+    global last_error
     body = None
+    error = None
+    expired = 0
     for path in CREDENTIALS:
-        token = read_token(path)
+        token, stale = read_token(path)
+        expired += stale
         if token:
-            body = ask_limits(token)
+            body, error = ask_limits(token)
         if body:
             break
     if not body:
+        last_error = error or ('expired' if expired else 'offline')
         return None
+    last_error = None
 
     limits = []
     for item in body.get('limits', []):

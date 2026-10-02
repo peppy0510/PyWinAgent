@@ -156,6 +156,10 @@ section { margin-bottom: 14px; }
 
 /* 한도 --------------------------------------------------------------- */
 .limit + .limit { margin-top: 14px; }
+/* 서버에 못 물어 지난 값을 보일 때. 까닭 한 줄을 위에 두고 막대는 옅게. */
+.limit-note { margin-bottom: 12px; padding: 6px 8px; border-radius: 4px; background: var(--sunken); font-size: 11px; color: var(--dim); }
+.limit.stale { opacity: 0.55; }
+.limit-note .limit-login { display: block; margin-top: 4px; }
 .limit .head { display: flex; align-items: baseline; gap: 8px; }
 .limit .name { font-size: 12px; }
 .limit .when { flex: 1; font-size: 11px; color: var(--dim); }
@@ -701,10 +705,41 @@ function drawPlans(plans) {
     }).join('');
 }
 
-function drawLimits(limits) {
+var loginState = null;
+var LOGIN_TEXT = {
+    working: 'Signing in…',
+    refreshed: 'Signed in. Reading plan limits…',
+    login: 'Finish signing in in the terminal window. Limits come back by themselves.',
+    missing: 'Claude Code was not found on this PC.',
+    failed: 'Could not open the sign-in window.'
+};
+
+function setLoginState(state) {
+    loginState = state;
+    if (latest) { drawLimits(latest.limits, latest.claude_status); }
+}
+
+function limitNote(status) {
+    if (!status) { loginState = null; return ''; }
+    var reason = status.error === 'expired'
+        ? 'Claude sign-in token expired.'
+        : 'Could not reach Claude for plan limits.';
+    var shown = status.age === null ? ' No earlier snapshot to show.'
+        : ' Showing the last snapshot from ' + ago(Date.now() - status.age * 1000) + '.';
+    // 만료일 때만 단추를 둔다. 연결이 안 되는 것은 다시 로그인해도 풀리지 않는다.
+    var action = '';
+    if (loginState) {
+        action = '<div class="limit-login">' + esc(LOGIN_TEXT[loginState] || '') + '</div>';
+    } else if (status.error === 'expired') {
+        action = '<button class="link limit-login" data-act="claude-login">Sign in</button>';
+    }
+    return '<div class="limit-note">' + esc(reason + shown) + action + '</div>';
+}
+
+function drawLimits(limits, status) {
     var host = el('limits');
     if (limits === null) {
-        host.innerHTML = '<div class="empty">plan limits unavailable — sign in again</div>';
+        host.innerHTML = limitNote(status) || '<div class="empty">plan limits unavailable</div>';
         return;
     }
     if (!limits.length) {
@@ -714,9 +749,9 @@ function drawLimits(limits) {
     host.innerHTML = limits.map(function (limit) {
         var tint = limit.severity === 'critical' ? 'var(--close)'
             : limit.severity === 'warning' ? 'var(--warn)' : 'var(--accent)';
-        return '<div class="limit">' +
+        return '<div class="limit' + (limit.stale ? ' stale' : '') + '">' +
             '<div class="head"><span class="name">' + esc(limit.name) + '</span>' +
-            '<span class="when">' + esc(limit.when) + '</span>' +
+            '<span class="when">' + esc(limit.when) + (limit.stale ? ' · cached' : '') + '</span>' +
             '<span class="elapsed">' + (limit.elapsed === null ? '' : limit.elapsed + '% elapsed') +
             '</span><span class="pct num" style="color:' + tint + '">' + limit.percent + '%</span></div>' +
             '<div class="bar">' +
@@ -724,6 +759,7 @@ function drawLimits(limits) {
             '<i style="width:' + Math.min(100, limit.percent) + '%;background:' + tint + '"></i>' +
             '</div></div>';
     }).join('');
+    host.insertAdjacentHTML('afterbegin', limitNote(status));
 }
 
 /* 코드 산출 ---------------------------------------------------------- */
@@ -1235,7 +1271,7 @@ function render(data) {
     drawControls();
     arrangeSections(data.sections, data.wide);
     var parts = [['header', drawHeader], ['plans', function () { drawPlans(data.plans); }],
-                 ['limits', function () { drawLimits(data.limits); }],
+                 ['limits', function () { drawLimits(data.limits, data.claude_status); }],
                  ['code', drawCode], ['trend', drawTrend], ['sessions', drawSessions],
                  ['activity', drawActivity], ['models', function () { drawModels(data.models); }]];
     // 한 묶음이 깨져도 나머지는 그린다.

@@ -539,6 +539,14 @@ class UsageIndex:
         rows = self.query('SELECT value FROM meta WHERE key = ?', (key,))
         return json.loads(rows[0][0]) if rows else None
 
+    def set_meta(self, key, value):
+        db = sqlite3.connect(self.path, timeout=30)
+        try:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key, json.dumps(value)))
+            db.commit()
+        finally:
+            db.close()
+
 
 def read_antigravity():
     '''Antigravity 대화 목록. (대화 id, 마지막 시각 ms, 단계 수, 작업 폴더).'''
