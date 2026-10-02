@@ -58,6 +58,16 @@ class SideMenu(Canvas):
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_capture_lost)
+        # 지우기 없이 손으로 칠하는 창이라, 처음 보일 때는 한 번도 칠해 본 적이 없어
+        # 빈 바탕(흰색)이 잠깐 비친다. 화면 밖(-WIDTH)에 있는 동안 미리 한 번 칠해 둔다.
+        wx.CallAfter(self.warm_up)
+
+    def warm_up(self):
+        if self.opened:
+            return
+        self.Show()
+        self.Update()
+        self.Hide()
 
     def get_height(self):
         total = self.MARGIN * 2
@@ -81,6 +91,8 @@ class SideMenu(Canvas):
         self.opened = True
         self.Show()
         self.Raise()
+        # 보이자마자 칠한다. 다음 그리기 차례를 기다리는 사이 빈 바탕이 보이지 않게.
+        self.Update()
         if not self.HasCapture():
             self.CaptureMouse()
         self.timer.Start(self.STEP)

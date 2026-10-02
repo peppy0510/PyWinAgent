@@ -76,9 +76,6 @@ class UsageView(wx.Panel):
 
         # ★테두리를 끄지 않으면 컨트롤 둘레에 회색+흰색 1px 이 둘러 나온다.
         # 캔버스 페이지엔 없는 자국이라 창이 유리에 끼운 것처럼 보인다.
-        # 창을 키우는 동안 웹뷰가 미처 못 그린 자리가 하얗게 번쩍인다. WebView2 의 기본
-        # 바탕을 페이지 바탕색으로 둔다 (만들기 전에 정해야 먹는다. 값은 AARRGGBB).
-        os.environ['WEBVIEW2_DEFAULT_BACKGROUND_COLOR'] = 'FF' + theme['bg'].lstrip('#').upper()
         self.view = wx.html2.WebView.New(self, backend=get_backend(),
                                          style=wx.BORDER_NONE)
         self.view.EnableContextMenu(False)
