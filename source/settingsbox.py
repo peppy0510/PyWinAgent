@@ -71,6 +71,7 @@ class SettingsBox(ScrollArea):
         self.agents = {key: toggle(label, description) for key, label, description in AGENTS}
 
 
+        self.wide = toggle('Wide layout', 'Lay sections out in columns when the window is wide')
         self.widget = toggle('Floating usage widget', 'Small always-on-top quota pace window')
 
         self.currency = ChoiceCard(board, theme, 'Currency', 'Money on the usage page',
@@ -108,6 +109,7 @@ class SettingsBox(ScrollArea):
     def load(self, settings):
         self.ontop.SetValue(settings.get('on_top', False))
         self.theme_choice.SetValue(settings.get('theme', 'dark'))
+        self.wide.SetValue(settings.get('wide_layout', True))
         enabled = settings.get('agents', {})
         for key, card in self.agents.items():
             card.SetValue(enabled.get(key, True))
@@ -150,7 +152,7 @@ class SettingsBox(ScrollArea):
         sizer.AddSpacer(TOP_MARGIN)
         groups = (
             ('Window', (self.ontop,)),
-            ('Appearance', (self.theme_choice,)),
+            ('Appearance', (self.theme_choice, self.wide)),
             ('Agents', tuple(self.agents.values())),
             ('Widget', (self.widget,)),
             ('Currency', (self.currency, self.krw, self.cny)),
@@ -298,6 +300,7 @@ class SettingsBox(ScrollArea):
         return {
             'on_top': self.ontop.GetValue(),
             'theme': self.theme_choice.GetValue(),
+            'wide_layout': self.wide.GetValue(),
             'agents': self.get_agents(),
             'compact_widget': self.widget.GetValue(),
             'currency': self.currency.GetValue(),

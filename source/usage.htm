@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html class="wide">
 
 <head>
 <meta charset="utf-8">
@@ -47,6 +47,8 @@ h2 {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* 기간 단추가 달린 제목과 키를 맞춘다. 격자에서 나란한 카드의 윗선이 어긋나지 않게. */
+    min-height: 22px;
     margin: 0 0 8px 3px;
     font-size: 13px;
     font-weight: 700;
@@ -54,6 +56,25 @@ h2 {
 h2 .tail { margin-left: auto; font-weight: 400; }
 
 section { margin-bottom: 14px; }
+
+/* 넓은 창에서는 묶음을 격자로 편다 (설정의 Wide layout 이 켜져 있을 때만).
+   차례는 왼쪽에서 오른쪽, 위에서 아래 — 설정에서 정한 순서 그대로 읽힌다.
+   카드는 내용 높이 그대로 둔다 (한 줄의 키를 맞추면 짧은 카드 안에 빈자리가 생긴다).
+   머리판은 늘 한 줄을 다 쓴다. */
+@media (min-width: 820px) {
+    html.wide #sections {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+        gap: 14px 16px;
+        margin-bottom: 14px;
+    }
+    html.wide #sections > section { margin-bottom: 0; min-width: 0; }
+    html.wide #sections > section[data-id="header"] { grid-column: 1 / -1; }
+}
+@media (min-width: 1240px) {
+    html.wide #sections { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 .card {
     background: var(--face);
@@ -1093,7 +1114,8 @@ function drawModels(models) {
 }
 
 /* 묶음 순서·숨김은 설정에서 온다. */
-function arrangeSections(sections) {
+function arrangeSections(sections, wide) {
+    document.documentElement.classList.toggle('wide', wide !== false);
     if (!sections) { return; }
     var host = el('sections');
     var nodes = {};
@@ -1120,7 +1142,7 @@ function render(data) {
     el('reload').disabled = false;
     el('reload').textContent = 'Reload';
     drawControls();
-    arrangeSections(data.sections);
+    arrangeSections(data.sections, data.wide);
     var parts = [['header', drawHeader], ['plans', function () { drawPlans(data.plans); }],
                  ['limits', function () { drawLimits(data.limits); }],
                  ['code', drawCode], ['trend', drawTrend], ['sessions', drawSessions],

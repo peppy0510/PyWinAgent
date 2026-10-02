@@ -70,6 +70,7 @@ class UsageView(wx.Panel):
             'currency': 'USD',
             'rate': 1.0,
             'sections': None,
+            'wide': True,
         }
         self.SetBackgroundColour(wx.Colour(theme['bg']))
 

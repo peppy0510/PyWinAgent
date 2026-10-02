@@ -352,5 +352,6 @@ def build(index, options, refresh_git=False, fresh_limits=False):
         'currency': options.get('currency', 'USD'),
         'rate': options.get('rate', 1.0),
         'sections': options.get('sections'),
+        'wide': options.get('wide', True),
         'updated': time.time(),
     }

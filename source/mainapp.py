@@ -213,7 +213,8 @@ class MainFrame(wx.Frame):
 
         self.usagebox.set_options(agents=values['agents'], currency=values['currency'],
                                   rate=self.settingsbox.get_rate(),
-                                  sections=self.settingsbox.get_sections())
+                                  sections=self.settingsbox.get_sections(),
+                                  wide=values['wide_layout'])
         if values['compact_widget'] and self.widget is None:
             self.widget = QuotaWidget(self, theme, self.widget_position)
             if self.last_data:
