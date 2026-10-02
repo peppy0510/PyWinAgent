@@ -1031,6 +1031,15 @@ class ScrollArea(wx.Panel):
         if count == self.columns and not force:
             return
         self.columns = count
+        # 옮기고 다시 재는 동안의 중간 모습이 칠해지면 번쩍인다. 다 끝난 뒤 한 번만 칠한다.
+        self.Freeze()
+        try:
+            self.arrange_columns(count)
+        finally:
+            self.Thaw()
+        self.Refresh()
+
+    def arrange_columns(self, count):
         # 키는 단 폭에서 재야 맞다. 보이스 격자처럼 폭 따라 줄이 바뀌는 묶음은 담기 전과
         # 담은 뒤의 키가 다르다. 한 번 담아 펼친 뒤 다시 재서, 끊는 자리가 바뀌면 다시 담는다.
         starts = None
@@ -1044,7 +1053,6 @@ class ScrollArea(wx.Panel):
             self.content.SetSize(self.GetClientSize()[0], self.content.GetSize()[1])
             self.content.Layout()
         self.fit()
-        self.Refresh()
 
     def fill_columns(self, starts, count):
         # 단을 지우기 전에 묶음부터 떼어 낸다. Clear 는 담긴 사이저까지 지운다.

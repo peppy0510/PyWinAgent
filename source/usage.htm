@@ -1169,6 +1169,9 @@ function layoutSections() {
         host.classList.remove('masonry');
         return;
     }
+    // 단 수가 그대로면 카드는 이미 단 폭으로 그려져 있다. 그 자리에서 재고, 단이
+    // 바뀌는 카드만 옮긴다. 1 분마다 새로 그릴 때 카드를 통째로 뺐다 넣으면 번쩍인다.
+    var settled = host.classList.contains('masonry') && columns.length === count;
     host.classList.add('masonry');
     while (columns.length < count) {
         var column = document.createElement('div');
@@ -1177,18 +1180,26 @@ function layoutSections() {
         columns.push(column);
     }
     while (columns.length > count) { columns.pop().remove(); }
-    // 단 폭에서 키를 재야 한다. 다 첫 단에 담아 놓고 하나씩 잰다 (아래 여백 포함).
     var shown = order.filter(function (id) { return !nodes[id].hidden; });
-    shown.forEach(function (id) { columns[0].appendChild(nodes[id]); });
+    if (!settled) {
+        // 단 폭에서 키를 재야 한다. 다 첫 단에 담아 놓고 하나씩 잰다.
+        shown.forEach(function (id) { columns[0].appendChild(nodes[id]); });
+    }
     var heights = shown.map(function (id) {
         var node = nodes[id];
         return node.offsetHeight + (parseFloat(getComputedStyle(node).marginBottom) || 0);
     });
     var starts = splitColumns(heights, count);
-    shown.forEach(function (id, index) {
-        var column = 0;
-        starts.forEach(function (start, c) { if (index >= start) { column = c; } });
-        columns[column].appendChild(nodes[id]);
+    // 단마다 들어갈 카드를 차례대로 맞춰 둔다. 이미 제자리면 건드리지 않는다.
+    columns.forEach(function (column, c) {
+        var want = shown.filter(function (id, index) {
+            var at = 0;
+            starts.forEach(function (start, k) { if (index >= start) { at = k; } });
+            return at === c;
+        }).map(function (id) { return nodes[id]; });
+        var have = [].filter.call(column.children, function (node) { return !node.hidden; });
+        var same = want.length === have.length && want.every(function (node, i) { return node === have[i]; });
+        if (!same) { want.forEach(function (node) { column.appendChild(node); }); }
     });
     order.forEach(function (id) {
         if (nodes[id].hidden) { columns[count - 1].appendChild(nodes[id]); }
