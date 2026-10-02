@@ -26,6 +26,8 @@ from utilities import get_font
 
 
 MARGIN = 16
+# 타이틀바 바로 아래. 옆 여백보다 좁게 둔다.
+TOP_MARGIN = 8
 # 카드 테두리는 선이지만 제목은 글자라, 같은 여백이면 제목이 왼쪽으로 삐져나와 보인다.
 TITLE_INSET = 3
 TITLE_GAP = 8
@@ -118,7 +120,7 @@ class TtsBox(ScrollArea):
 
     def build(self):
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.AddSpacer(MARGIN)
+        sizer.AddSpacer(TOP_MARGIN)
 
         # 소리를 낼지 말지가 먼저다. 나머지는 낸다고 했을 때의 이야기라 뒤에 둔다.
         self.add_title(sizer, 'Notifications')

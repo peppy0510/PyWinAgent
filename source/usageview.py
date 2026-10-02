@@ -11,22 +11,34 @@ wxmain/wvmain/wemain 과 같은 짜임새).
 
 Edge(Chromium) 백엔드를 쓴다. honeypot 의 `wxmain.py` 는 IE 에뮬레이션을 켜지만
 이 PC 에는 WebView2 런타임이 있어 그럴 이유가 없다.
+
+값은 `usageindex` 가 색인한 기록에서 `dashboard` 가 뽑는다. 모으는 일은 두
+번에 나눈다 — 색인과 저장해 둔 git 통계로 먼저 그리고, git 을 다시 센 뒤에
+한 번 더 그린다. git 은 저장소마다 몇 초씩 걸린다.
 '''
 
 
 import json
 import os
 import threading
+import time
+import traceback
 import wx
 import wx.html2
 
-import usagedata
+import dashboard
+import usageindex
 
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'usage.htm')
 
 # 페이지가 CSS 변수로 받는 색. 테마가 바뀌면 이만큼만 다시 넘긴다.
 TINTS = ('bg', 'face', 'rim', 'text', 'dim', 'accent', 'mint', 'grid', 'warn', 'close')
+
+# 페이지가 보이는 동안 이 간격으로 다시 읽는다. 색인 덕에 새 줄만 읽는다.
+AUTO_REFRESH = 60
+# git 은 비싸다. 이보다 자주 다시 세지 않는다 (Reload 를 누르면 바로 센다).
+GIT_REFRESH = 10 * 60
 
 
 def get_backend():
@@ -36,32 +48,29 @@ def get_backend():
     return wx.html2.WebViewBackendDefault
 
 
-def build_payload(data):
-    '''파이썬 쪽 자료를 그대로 넘길 수 없다 — 활동 표의 키가 (날짜, 시) 짝이라
-    JSON 이 되지 않는다. 날짜마다 24 칸짜리 줄로 편다.'''
-    days = data['days']
-    hours = [[data['hours'].get((day, hour), 0) for hour in range(24)]
-             for day in days]
-
-    limits = data['limits']
-    if limits is not None:
-        limits = [{'name': limit['name'], 'percent': limit['percent'],
-                   'severity': limit['severity'],
-                   'when': usagedata.format_remaining(limit['remains'])}
-                  for limit in limits]
-
-    return {'cost': data['cost'], 'ratio': data['ratio'], 'saved': data['saved'],
-            'calls': data['calls'], 'sessions': data['sessions'],
-            'trend': data['trend'], 'days': days, 'hours': hours, 'limits': limits}
-
-
 class UsageView(wx.Panel):
 
-    def __init__(self, parent, theme):
+    def __init__(self, parent, theme, settings=None, on_options=None):
         super().__init__(parent, style=wx.BORDER_NONE)
+        settings = settings or {}
         self.theme = theme
         self.loading = False
+        self.pending = False
         self.ready = False
+        self.last_run = 0
+        self.last_git = 0
+        self.on_options = on_options
+        # 모을 때마다 같은 값을 받는 쪽 (트레이·위젯·알림). mainapp 이 건다.
+        self.on_data = None
+        self.index = usageindex.UsageIndex()
+        self.options = {
+            'agents': ('claude',),
+            'hidden': list(settings.get('hidden_projects', [])),
+            'excluded': list(settings.get('excluded_projects', [])),
+            'currency': 'USD',
+            'rate': 1.0,
+            'sections': None,
+        }
         self.SetBackgroundColour(wx.Colour(theme['bg']))
 
         # ★테두리를 끄지 않으면 컨트롤 둘레에 회색+흰색 1px 이 둘러 나온다.
@@ -101,34 +110,113 @@ class UsageView(wx.Panel):
         tints['dark'] = self.theme['titlebar_dark']
         self.call('setTheme', tints)
 
+    def set_options(self, **options):
+        '''설정 페이지에서 오는 값(도구·통화·묶음 순서). 바뀌었을 때만 다시 모은다.'''
+        if 'agents' in options:
+            enabled = options['agents']
+            options['agents'] = tuple(name for name in usageindex.AGENTS if enabled.get(name))
+        changed = any(self.options.get(key) != value for key, value in options.items())
+        self.options.update(options)
+        if changed and self.ready:
+            self.reload(force=True)
+
+    def get_options(self):
+        return {'hidden_projects': self.options['hidden'],
+                'excluded_projects': self.options['excluded']}
+
     def on_message(self, event):
         message = event.GetString()
+        command, _, argument = message.partition(':')
         if message == 'ready':
             self.ready = True
             self.push_theme()
-            self.reload()
+            self.reload(git=True)
         elif message == 'reload':
-            self.reload()
+            self.reload(force=True, git=True)
+        elif command in ('hide', 'unhide', 'exclude') and argument:
+            self.toggle_project(command, argument)
 
-    def reload(self):
+    def toggle_project(self, command, project):
+        '''Hide 는 세션 목록에서만 감추고, Exclude 는 모든 숫자에서 뺀다.'''
+        key = 'excluded' if command == 'exclude' else 'hidden'
+        values = [value for value in self.options[key] if value != project]
+        if command != 'unhide':
+            values.append(project)
+        self.set_project_list(key, values)
+
+    def set_project_list(self, key, values):
+        self.options[key] = list(values)
+        if self.on_options:
+            self.on_options()
+        self.reload(force=True)
+
+    def reload(self, force=False, git=False):
         if self.loading:
+            # 모으는 중에 무언가 바뀌면 끝난 뒤 한 번 더 모은다.
+            self.pending = self.pending or force
             return
         self.loading = True
-        threading.Thread(target=self.gather, daemon=True).start()
+        self.pending = False
+        self.last_run = time.time()
+        git = git or time.time() - self.last_git > GIT_REFRESH
+        if git:
+            self.last_git = time.time()
+        options = dict(self.options)
+        threading.Thread(target=self.gather, args=(options, git, force), daemon=True).start()
 
-    def gather(self):
+    def gather(self, options, git, force):
         try:
-            data = usagedata.collect()
+            self.index.update(lambda value: wx.CallAfter(self.call, 'setProgress', value))
+            wx.CallAfter(self.call, 'setProgress', None)
+            data = dashboard.build(self.index, options, fresh_limits=force)
+            wx.CallAfter(self.deliver, data)
+            if git:
+                data = dashboard.build(self.index, options, refresh_git=True)
+                wx.CallAfter(self.deliver, data)
         except Exception:
-            data = None
+            traceback.print_exc()
         # 페이지를 건드리는 것은 주 실에서만.
-        wx.CallAfter(self.settle, data)
+        wx.CallAfter(self.settle)
 
-    def settle(self, data):
+    def deliver(self, data):
+        self.call('render', data)
+        if self.on_data:
+            self.on_data(data)
+
+    def count_orphans(self, callback):
+        '''지워진 기록 파일에서 와서 이제 색인에만 남은 요청 수와 금액. UNC 경로의
+        존재 확인이 느려 실에서 센다.'''
+        def run():
+            requests, cost = 0, 0.0
+            try:
+                rows = self.index.query('SELECT file, COUNT(*), SUM(cost) FROM entries GROUP BY file')
+                for path, count, total in rows:
+                    if not os.path.exists(path):
+                        requests += count
+                        cost += total or 0
+            except Exception:
+                traceback.print_exc()
+            wx.CallAfter(callback, requests, cost)
+        threading.Thread(target=run, daemon=True).start()
+
+    def reset_index(self):
+        '''색인을 지우고 처음부터 다시 만든다. 모으는 중이면 끝난 뒤에.'''
+        def run():
+            with self.index.lock:
+                for suffix in ('', '-wal', '-shm'):
+                    try:
+                        os.remove(self.index.path + suffix)
+                    except OSError:
+                        pass
+            wx.CallAfter(self.reload, True, True)
+        threading.Thread(target=run, daemon=True).start()
+
+    def settle(self):
         self.loading = False
-        if data is None:
-            return
-        self.call('render', build_payload(data))
+        if self.pending:
+            self.reload()
 
     def tick(self):
-        pass
+        # 안 보여도 다시 읽는다. 트레이·위젯·알림이 이 값을 쓴다.
+        if self.ready and time.time() - self.last_run > AUTO_REFRESH:
+            self.reload()

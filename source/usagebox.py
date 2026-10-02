@@ -355,7 +355,7 @@ class HeatBoard(Board):
 
 class UsageBox(ScrollArea):
 
-    def __init__(self, parent, theme):
+    def __init__(self, parent, theme, settings=None, on_options=None):
         super().__init__(parent, theme)
         board = self.content
         self.labels = []
@@ -427,6 +427,25 @@ class UsageBox(ScrollArea):
             return
         for board in self.boards:
             board.set_data(data)
+
+    # 캔버스 판은 Claude 만 그린다. 아래는 mainapp 이 웹뷰 판과 같은 이름으로
+    # 부르는 자리라 비워 둔다.
+    on_data = None
+
+    def set_options(self, **options):
+        pass
+
+    def get_options(self):
+        return {'hidden_projects': [], 'excluded_projects': []}
+
+    def set_project_list(self, key, values):
+        pass
+
+    def count_orphans(self, callback):
+        callback(0, 0.0)
+
+    def reset_index(self):
+        pass
 
     def tick(self):
         pass

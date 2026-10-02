@@ -8,7 +8,9 @@ email: peppy0510@hotmail.com
 사용량 숫자를 모은다. 돈과 토큰은 ccusage 에 맡기고, ccusage 가 내주지 않는
 것(시간대별 활동, 오늘의 호출 수, 세션 수)만 기록 파일에서 직접 센다.
 
-기록은 `~/.claude/projects/**/*.jsonl` 이다. 통째로 파싱하지 않고 줄마다
+기록은 `~/.claude/projects/**/*.jsonl` 이다. Codex 는 `~/.codex/sessions` 의 같은 꼴
+jsonl 을 같은 정규식으로 훑고, Antigravity 는 토큰 기록을 남기지 않아 대화 목록
+DB 에서 대화 수와 마지막 시각만 읽는다. 통째로 파싱하지 않고 줄마다
 정규식 하나만 걸어 훑는다 — 이 PC 에서 7 일치 370MB 가 1 초 안쪽이라 인덱스를
 따로 둘 이유가 없었다.
 '''
@@ -18,6 +20,7 @@ import glob
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import time
 import urllib.request
@@ -28,6 +31,13 @@ from datetime import datetime
 
 CCUSAGE = os.environ.get('PYWINAGENT_CCUSAGE', 'ccusage@latest')
 PROJECTS = os.path.join(os.path.expanduser('~'), '.claude', 'projects')
+CODEX_SESSIONS = os.path.join(os.path.expanduser('~'), '.codex', 'sessions')
+# IDE 와 CLI 가 저마다 대화 목록을 따로 둔다.
+ANTIGRAVITY_DBS = tuple(
+    os.path.join(os.path.expanduser('~'), '.gemini', name, 'conversation_summaries.db')
+    for name in ('antigravity', 'antigravity-cli'))
+
+AGENTS = ('claude', 'codex', 'antigravity')
 
 USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
@@ -40,6 +50,11 @@ CREDENTIALS = (
 )
 
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
+
+# 창 길이는 응답에 없다. 지나간 시간을 그리려고 종류로 정한다 — 5시간 창 하나 말고는
+# 모두 주간이다.
+SESSION_WINDOW = 5 * 3600
+WEEKLY_WINDOW = 7 * 86400
 
 TREND_DAYS = 60
 HEATMAP_DAYS = 7
@@ -58,6 +73,7 @@ DEFAULT_PRICE = (3.0, 15.0, 3.75, 0.30)
 
 TIMESTAMP = re.compile(rb'"timestamp":"(\d{4})-(\d{2})-(\d{2})T(\d{2})')
 REQUEST = re.compile(rb'"requestId":"([^"]+)"')
+CODEX_REQUEST = re.compile(rb'"type":"token_usage_record".*?"response_id":"([^"]+)"')
 
 
 def get_npx():
@@ -116,6 +132,33 @@ def read_token(path):
         return None
 
 
+def read_plan():
+    '''로그인 파일의 구독 종류. (subscriptionType, rateLimitTier). 토큰은 읽지 않는다.'''
+    for path in CREDENTIALS:
+        try:
+            with open(path, encoding='utf-8') as file:
+                oauth = json.load(file)['claudeAiOauth']
+        except Exception:
+            continue
+        if oauth.get('subscriptionType') or oauth.get('rateLimitTier'):
+            return oauth.get('subscriptionType') or '', oauth.get('rateLimitTier') or ''
+    return None
+
+
+def get_plan_name():
+    '''Max 20x 같은 이름. 배수는 subscriptionType 에 없고 rateLimitTier 에만 있다
+    (`default_claude_max_20x`).'''
+    plan = read_plan()
+    if not plan:
+        return None
+    kind, tier = plan
+    name = (kind or 'claude').replace('_', ' ').title()
+    found = re.search(r'(\d+)x', tier)
+    if found and kind == 'max':
+        name += ' %sx' % found.group(1)
+    return name
+
+
 def ask_limits(token):
     request = urllib.request.Request(USAGE_URL, headers={
         'Authorization': 'Bearer ' + token,
@@ -163,9 +206,10 @@ def get_limits():
         if name is None:
             scope = (item.get('scope') or {}).get('model') or {}
             name = 'Weekly · %s' % (scope.get('display_name') or 'scoped')
+        window = SESSION_WINDOW if item.get('kind') == 'session' else WEEKLY_WINDOW
         limits.append({'name': name, 'percent': percent,
                        'severity': item.get('severity', 'normal'),
-                       'remains': get_reset_seconds(resets)})
+                       'remains': get_reset_seconds(resets), 'window': window})
     return limits
 
 
@@ -184,7 +228,19 @@ def get_day_key(offset_days=0):
     return time.strftime('%Y-%m-%d', time.localtime(time.time() - offset_days * 86400))
 
 
-def scan_records(days=HEATMAP_DAYS):
+def get_local_key(stamp, local):
+    '''UTC (년, 월, 일, 시) 를 이 곳의 (날짜, 시) 로. 조합마다 한 번만 옮기고 외워 둔다.'''
+    key = local.get(stamp)
+    if key is None:
+        moment = time.localtime(timegm((
+            int(stamp[0]), int(stamp[1]), int(stamp[2]),
+            int(stamp[3]), 0, 0, 0, 0, 0)))
+        key = (time.strftime('%Y-%m-%d', moment), moment.tm_hour)
+        local[stamp] = key
+    return key
+
+
+def scan_records(root=PROJECTS, request=REQUEST, days=HEATMAP_DAYS, on_line=None):
     '''시간대별 활동 수, 오늘의 고유 요청 수, 오늘 손댄 세션 파일 수.
 
     기록의 시각은 UTC 라 화면에 쓰려면 이 곳 시간으로 옮겨야 한다. 줄마다
@@ -194,7 +250,7 @@ def scan_records(days=HEATMAP_DAYS):
     midnight = time.mktime(time.strptime(get_day_key(), '%Y-%m-%d'))
     today = get_day_key()
 
-    files = glob.glob(os.path.join(PROJECTS, '**', '*.jsonl'), recursive=True)
+    files = glob.glob(os.path.join(root, '**', '*.jsonl'), recursive=True)
     recent = [path for path in files if os.path.getmtime(path) >= since]
     sessions = sum(1 for path in recent if os.path.getmtime(path) >= midnight)
 
@@ -212,47 +268,145 @@ def scan_records(days=HEATMAP_DAYS):
                 found = TIMESTAMP.search(line)
                 if not found:
                     continue
-                stamp = found.groups()
-                key = local.get(stamp)
-                if key is None:
-                    moment = time.localtime(timegm((
-                        int(stamp[0]), int(stamp[1]), int(stamp[2]),
-                        int(stamp[3]), 0, 0, 0, 0, 0)))
-                    key = (time.strftime('%Y-%m-%d', moment), moment.tm_hour)
-                    local[stamp] = key
+                key = get_local_key(found.groups(), local)
                 hours[key] = hours.get(key, 0) + 1
                 if key[0] == today:
-                    request = REQUEST.search(line)
-                    if request:
-                        calls.add(request.group(1))
+                    called = request.search(line)
+                    if called:
+                        calls.add(called.group(1))
+                if on_line is not None:
+                    on_line(line)
 
     return {'hours': hours, 'calls': len(calls), 'sessions': sessions,
             'days': [get_day_key(index) for index in range(days - 1, -1, -1)]}
 
 
-def collect():
+def get_window_name(minutes):
+    if minutes and minutes % 1440 == 0:
+        return 'Weekly' if minutes == 10080 else '%d-day' % (minutes // 1440)
+    return '%d-hour' % round((minutes or 0) / 60.0)
+
+
+def scan_codex():
+    '''Codex 기록. 한도는 서버에 묻지 않는다 — 응답마다 `token_count` 이벤트에
+    그때의 한도가 실려 오므로 가장 늦은 것을 쓴다. 초기화 시각이 이미 지났으면
+    그 창은 새로 열렸다는 뜻이라 알릴 것이 없다.'''
+    latest = {'stamp': b'', 'line': None}
+
+    def on_line(line):
+        if b'"rate_limits"' not in line:
+            return
+        stamp = TIMESTAMP.search(line).group(0)
+        if stamp >= latest['stamp']:
+            latest['stamp'] = stamp
+            latest['line'] = line
+
+    scanned = scan_records(CODEX_SESSIONS, CODEX_REQUEST, on_line=on_line)
+
+    limits = []
+    try:
+        rates = json.loads(latest['line'])['payload']['rate_limits'] if latest['line'] else {}
+    except (ValueError, KeyError, TypeError):
+        rates = {}
+    for window in (rates.get('primary'), rates.get('secondary')):
+        if not window or not window.get('resets_at'):
+            continue
+        remains = window['resets_at'] - time.time()
+        if remains <= 0:
+            continue
+        limits.append({'name': 'Codex · ' + get_window_name(window.get('window_minutes')),
+                       'percent': int(round(window.get('used_percent', 0))),
+                       'severity': 'normal', 'remains': remains,
+                       'window': (window.get('window_minutes') or 0) * 60})
+    scanned['limits'] = limits
+    return scanned
+
+
+def scan_antigravity(days=HEATMAP_DAYS):
+    '''Antigravity 는 토큰도 호출도 남기지 않는다. 대화마다 마지막으로 손댄 시각
+    한 줄뿐이라 활동 표에는 대화 하나가 그 시각에 한 칸씩만 찍힌다.'''
+    today = get_day_key()
+    since = get_day_key(days - 1)
+    hours = {}
+    local = {}
+    sessions = 0
+    for path in ANTIGRAVITY_DBS:
+        if not os.path.exists(path):
+            continue
+        try:
+            # ★읽기 전용으로 연다. 앱이 쓰는 중인 DB 에 잠금을 걸지 않는다.
+            connection = sqlite3.connect('file:%s?mode=ro' % path, uri=True, timeout=2)
+            try:
+                rows = connection.execute(
+                    'SELECT last_modified_time FROM conversation_summaries').fetchall()
+            finally:
+                connection.close()
+        except sqlite3.Error:
+            continue
+        for (stamp,) in rows:
+            found = re.match(r'(\d{4})-(\d{2})-(\d{2})[ T](\d{2})', str(stamp))
+            if not found:
+                continue
+            key = get_local_key(found.groups(), local)
+            if key[0] < since:
+                continue
+            hours[key] = hours.get(key, 0) + 1
+            if key[0] == today:
+                sessions += 1
+    return {'hours': hours, 'calls': 0, 'sessions': sessions}
+
+
+def collect(agents=('claude',)):
     '''화면 한 장에 필요한 것을 모두 모은다. ccusage 호출과 기록 훑기가 각각
-    1 초 안쪽이라 한 번에 해도 된다. 부르는 쪽이 스레드로 돌릴 것.'''
-    since = time.strftime('%Y%m%d', time.localtime(time.time() - TREND_DAYS * 86400))
-    report = run_ccusage('daily', '--since', since)
-    rows = (report or {}).get('daily', [])
+    1 초 안쪽이라 한 번에 해도 된다. 부르는 쪽이 스레드로 돌릴 것.
+
+    돈·캐시·추세는 ccusage 가 내주는 Claude 것뿐이다. 호출·세션·활동·한도는
+    켜 둔 도구를 모두 더한다.'''
+    rows = []
+    report = None
+    limits = []
+    claude_limits = None
+    scans = []
+
+    if 'claude' in agents:
+        since = time.strftime('%Y%m%d', time.localtime(time.time() - TREND_DAYS * 86400))
+        report = run_ccusage('daily', '--since', since)
+        rows = (report or {}).get('daily', [])
+        claude_limits = get_limits()
+        limits.extend(claude_limits or [])
+        scans.append(scan_records())
+    if 'codex' in agents:
+        codex = scan_codex()
+        limits.extend(codex['limits'])
+        scans.append(codex)
+    if 'antigravity' in agents:
+        scans.append(scan_antigravity())
 
     today = get_day_key()
     current = next((row for row in rows if row.get('period') == today), None)
     ratio, saved = get_cache_stats(current) if current else (0.0, 0.0)
 
-    scanned = scan_records()
+    hours = {}
+    for scanned in scans:
+        for key, value in scanned['hours'].items():
+            hours[key] = hours.get(key, 0) + value
+
+    # Claude 한도를 못 물었는데 다른 한도도 없으면 다시 로그인하라고 알린다.
+    if 'claude' in agents and claude_limits is None and not limits:
+        limits = None
+
     return {
         'ok': report is not None,
-        'limits': get_limits(),
+        'claude': 'claude' in agents,
+        'limits': limits,
         'cost': (current or {}).get('totalCost', 0.0),
         'ratio': ratio,
         'saved': saved,
         'trend': [(row.get('period'), row.get('totalCost', 0.0)) for row in rows],
-        'calls': scanned['calls'],
-        'sessions': scanned['sessions'],
-        'hours': scanned['hours'],
-        'days': scanned['days'],
+        'calls': sum(scanned['calls'] for scanned in scans),
+        'sessions': sum(scanned['sessions'] for scanned in scans),
+        'hours': hours,
+        'days': [get_day_key(index) for index in range(HEATMAP_DAYS - 1, -1, -1)],
     }
 
 

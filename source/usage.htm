@@ -18,13 +18,23 @@
     --grid: #2b2f35;
     --warn: #e2a03f;
     --close: #c42b1c;
+    /* 넓은 창에서 그림이 뭉툭해지지 않게 폭은 활동 모자이크 폭에서 멈추고 가운데에 선다. */
+    --chart-max: 368px;
+    /* 그래프 계열색. 1 = 파랑(accent), 2 = 주황. 상태색(--warn·--close)과 따로 둔다.
+       어두운 판의 2 번은 판 밝기 대역(OKLCH L 0.48–0.67)에 맞춰 낮췄다 — setTheme 참고.
+       검증: 파랑↔주황 색약 ΔE 27.7 / 정상 시각 29.6 (dataviz validate_palette). */
+    --series1: var(--accent);
+    --series2: #c98430;
+    --sunken: color-mix(in srgb, var(--face) 70%, var(--grid));
+    --soft: color-mix(in srgb, var(--accent) 45%, var(--grid));
 }
 
 * { box-sizing: border-box; }
 
 body {
     margin: 0;
-    padding: 16px 16px 20px;
+    /* 위는 타이틀바 바로 아래라 옆보다 좁게 둔다. */
+    padding: 8px 16px 20px;
     background: var(--bg);
     color: var(--text);
     font: 13px "Segoe UI", sans-serif;
@@ -34,12 +44,16 @@ body {
 }
 
 h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0 0 8px 3px;
     font-size: 13px;
     font-weight: 700;
 }
+h2 .tail { margin-left: auto; font-weight: 400; }
 
-h2 + .card { margin-bottom: 14px; }
+section { margin-bottom: 14px; }
 
 .card {
     background: var(--face);
@@ -53,96 +67,203 @@ h2 + .card { margin-bottom: 14px; }
     font-weight: 700;
     letter-spacing: 1.4px;
     color: var(--dim);
+    text-transform: uppercase;
 }
+.note { font-size: 11px; color: var(--dim); }
+.num { font-variant-numeric: tabular-nums lining-nums; }
+.empty { padding: 6px 0; color: var(--dim); font-size: 12px; text-align: center; }
 
-/* 오늘 --------------------------------------------------------------- */
-.today { display: flex; justify-content: space-between; }
-.today .right { text-align: right; }
-.today .value { margin: 2px 0; font-size: 15px; font-weight: 700; }
-.today .note { font-size: 11px; color: var(--dim); }
-.today .right .caption,
-.today .right .note { color: var(--mint); }
+/* 둘셋 중 하나를 고르는 작은 단추 묶음 */
+.seg {
+    display: inline-flex;
+    /* 좁은 창에서는 다음 줄로 넘긴다. 한 줄을 고집하면 카드 밖으로 삐져나간다. */
+    flex-wrap: wrap;
+    max-width: 100%;
+    padding: 2px;
+    border-radius: 5px;
+    background: var(--grid);
+}
+.seg button {
+    padding: 2px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--dim);
+    font: 600 10px "Segoe UI", sans-serif;
+    cursor: pointer;
+}
+.seg button.on { background: var(--face); color: var(--text); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 10px; }
+.controls.center { justify-content: center; }
+.controls .label { font-size: 9px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+
+.link {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: var(--accent);
+    font: 11px "Segoe UI", sans-serif;
+    cursor: pointer;
+}
+.link:hover { text-decoration: underline; }
+
+/* 뼈대 — 첫 값이 오기 전 카드마다 실제 모양대로 자리를 잡아 둔다. 값이 오면서
+   카드가 부풀어 오르지 않게. 깜빡임은 은은하게, 움직임 줄이기 설정이면 멈춘다. */
+.sk { display: block; border-radius: 3px; background: var(--grid); animation: sk-pulse 1.6s ease-in-out infinite; }
+.sk.line { height: 9px; }
+.sk-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.sk-stack > * + * { margin-top: 6px; }
+@keyframes sk-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* 알림 띠 ------------------------------------------------------------ */
+.banner {
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    border: 1px solid var(--rim);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    background: var(--face);
+    font-size: 12px;
+}
+.banner .bar { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--grid); overflow: hidden; }
+.banner .bar > i { display: block; height: 100%; background: var(--accent); }
+
+/* 머리판 ------------------------------------------------------------- */
+.header { display: flex; justify-content: space-between; gap: 12px; }
+.header .right { text-align: right; }
+.header .value { margin: 2px 0; font-size: 15px; font-weight: 700; }
+.plans { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan { padding: 1px 7px; border: 1px solid var(--rim); border-radius: 9px; font-size: 10px; font-weight: 600; }
+.plan .provider { margin-right: 4px; }
+/* 왼쪽에 지금 쓰는 플랜, 오른쪽에 기간 단추 (WhereMyTokens 머리줄과 같은 자리). */
+.header-period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; margin: 0 0 6px; }
+.header-period .seg { margin-left: auto; }
 
 /* 한도 --------------------------------------------------------------- */
 .limit + .limit { margin-top: 14px; }
 .limit .head { display: flex; align-items: baseline; gap: 8px; }
 .limit .name { font-size: 12px; }
 .limit .when { flex: 1; font-size: 11px; color: var(--dim); }
+.limit .elapsed { font-size: 11px; color: var(--dim); }
 .limit .pct { font-weight: 600; }
+/* 한 칸에 둘을 겹친다. 뒤의 옅은 막대가 창 전체 가운데 지나간 시간, 앞의 색
+   막대가 쓴 몫이다. 색 막대가 옅은 막대를 앞지르면 이대로는 창이 끝나기 전에
+   한도에 닿는다. */
 .limit .bar {
+    position: relative;
     margin-top: 5px;
     height: 6px;
     border-radius: 3px;
     background: var(--grid);
     overflow: hidden;
 }
-.limit .bar > i { display: block; height: 100%; border-radius: 3px; }
+.limit .bar > i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; }
+.limit .bar > .time { background: color-mix(in srgb, var(--dim) 45%, var(--grid)); }
 
-/* 추세 — itruck-service comjs 의 TimeGraph 를 옮겼다. 막대는 붙어 서고 바닥에
-   맞춰 자라며, 라벨판이 위 좌우에 얹히고 그림은 그만큼 내려 시작한다.
-   색만 이 앱의 다크 테마로 바꿨다 (원본은 밝은 회색 #b8b8b8). ------------ */
-.time-graph-container {
-    position: relative;
-    display: flex;
-    width: 100%;
-    height: 68px;
-    border-radius: 4px;
-    box-sizing: border-box;
+/* 막대 그림 (추세·산출·시간대 공용). 0 에서 자라고, 막대 사이 2px 틈,
+   끝만 둥글다. 음수는 0 선 아래로 주황. ------------------------------------ */
+.chart { max-width: var(--chart-max); margin: 0 auto; }
+.chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; font-size: 10px; color: var(--dim); }
+.chart-head b { font-weight: 600; color: var(--text); }
+.bars { position: relative; display: flex; gap: 2px; height: 64px; border-bottom: 1px solid var(--rim); }
+.bars.small { height: 34px; }
+.bars.signed { border-bottom: 0; }
+.bars .zero { position: absolute; left: 0; right: 0; height: 1px; background: var(--rim); }
+.bars > .slot { position: relative; flex: 1; min-width: 0; height: 100%; }
+.bars > .slot[data-bucket] { cursor: pointer; }
+.bars > .slot > i { position: absolute; left: 0; right: 0; background: color-mix(in srgb, var(--series1) 55%, var(--face)); border-radius: 2px 2px 0 0; }
+.bars > .slot > i.neg { background: color-mix(in srgb, var(--series2) 70%, var(--face)); border-radius: 0 0 2px 2px; }
+/* 지금 칸과 고른 칸만 진하게. 나머지와 같은 색이면 어디가 지금인지 안 읽힌다. */
+.bars > .slot.now > i,
+.bars > .slot.picked > i { background: var(--series1); }
+.bars > .slot.now > i.neg,
+.bars > .slot.picked > i.neg { background: var(--series2); }
+.bars > .slot:hover > i { filter: brightness(1.2); }
+.axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 9px; color: var(--dim); }
+.chart + .chart { margin-top: 10px; }
+
+/* 코드 산출 ---------------------------------------------------------- */
+/* 아래 그림과 같은 폭에서 멈추고 가운데에 선다. 넓은 창에서 셋이 양끝으로 흩어지지 않게. */
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: var(--chart-max); margin: 0 auto; }
+.kpi { text-align: center; }
+.kpi .value { margin: 2px 0; font-size: 15px; font-weight: 700; }
+
+/* 고른 칸의 내역 */
+.breakdown { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rim); }
+.breakdown h3 { margin: 10px 0 6px; font-size: 11px; font-weight: 700; display: flex; justify-content: space-between; }
+.breakdown h3:first-child { margin-top: 0; }
+.breakdown h3 .note { font-weight: 400; }
+.meter { display: grid; grid-template-columns: 92px 1fr auto; gap: 8px; align-items: center; margin-top: 4px; font-size: 11px; }
+.meter .track { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.meter .track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.meter .val { color: var(--dim); text-align: right; white-space: nowrap; }
+
+/* 세션 --------------------------------------------------------------- */
+.session { padding: 8px 0; border-top: 1px solid var(--grid); }
+.session:first-child { border-top: 0; padding-top: 0; }
+.session .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.session .project { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session .ago { margin-left: auto; white-space: nowrap; }
+.session .meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; }
+.session .ctx { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.session .ctx .track { flex: 1; height: 4px; border-radius: 2px; background: var(--grid); overflow: hidden; }
+.session .ctx .track i { display: block; height: 100%; background: var(--accent); }
+.session .ctx .track i.near { background: var(--warn); }
+.session .ctx .track i.full { background: var(--close); }
+.session .actions { display: flex; gap: 10px; margin-top: 4px; }
+.chip {
+    padding: 1px 6px;
+    border-radius: 9px;
+    font-size: 10px;
+    white-space: nowrap;
     border: 1px solid var(--rim);
-    background: color-mix(in srgb, var(--face) 70%, var(--grid));
-}
-.time-graph-graphic {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-    height: 100%;
-    margin-top: auto;
-    padding-top: 19px;
-    box-sizing: border-box;
-}
-.time-graph-graphic-element {
-    width: 100%;
-    margin: auto 0 0 0;
-    background: color-mix(in srgb, var(--accent) 45%, var(--grid));
-}
-/* 오늘만 진하게. 나머지와 같은 색이면 어디가 지금인지 안 읽힌다. */
-.time-graph-graphic-element.today { background: var(--accent); }
-
-.value-label-group {
-    position: absolute;
-    top: 0;
-    display: flex;
-    align-items: flex-end;
-    min-height: 19px;
-    padding: 0 6px 3px;
-    box-sizing: border-box;
-    color: var(--dim);
-    background: var(--face);
-    border: 1px solid var(--rim);
-    border-top-width: 0;
-    font: 9px Consolas, "Courier New", monospace;
-    font-variant-numeric: tabular-nums lining-nums;
-    pointer-events: none;
-}
-.value-label-ljust { left: 0; border-left-width: 0; border-bottom-right-radius: 4px; }
-.value-label-rjust { right: 0; border-right-width: 0; border-bottom-left-radius: 4px; }
-
-.trend-dates {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 6px;
-    font-size: 9px;
     color: var(--dim);
 }
+/* 상태는 색만으로 말하지 않는다. 글자와 테두리 굵기도 다르다. */
+.chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.chip.waiting { border-color: var(--warn); color: var(--warn); }
+.provider { font-size: 10px; font-weight: 600; letter-spacing: 0.4px; color: var(--dim); white-space: nowrap; }
+.provider::before {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 4px;
+    border-radius: 50%;
+    vertical-align: 0;
+    background: var(--dim);
+}
+.provider.claude::before { background: var(--series1); }
+.provider.codex::before { background: var(--series2); }
+.sessions-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; }
 
 /* 활동 --------------------------------------------------------------- */
-#heat { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; }
-#heat .row-label,
-#heat .hour-label { font-size: 9px; color: var(--dim); line-height: 1; }
-#heat .cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
-#heat .cells > i { display: block; aspect-ratio: 1; border-radius: 1.5px; }
-#heat .hours { display: grid; grid-template-columns: repeat(24, 1fr); }
-#heat .row-label { align-self: center; }
+/* 칸은 12px 에서 멈추고(넓은 창에서 뭉툭해지지 않게), 자리가 모자라면 그만큼
+   줄어든다(좁은 창에서 카드 밖으로 넘치지 않게). 칸 높이는 폭을 따라 정사각형. */
+.heat-box { width: fit-content; max-width: 100%; margin: 0 auto; }
+.heat { display: grid; grid-template-columns: auto minmax(0, calc(24 * 12px + 23 * 2px)); gap: 2px 6px; }
+.heat .row-label,
+.heat .hour-label { font-size: 9px; color: var(--dim); line-height: 1; }
+.heat .cells,
+.heat .hours { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; }
+.heat .cells > i { display: block; aspect-ratio: 1; border-radius: 1.5px; }
+.heat .hour-label { white-space: nowrap; overflow: visible; }
+.heat .row-label { align-self: center; }
+.calendar { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, auto);
+            grid-auto-columns: minmax(0, 12px); gap: 2px; }
+.calendar > i { display: block; aspect-ratio: 1; border-radius: 1.5px; }
+.calendar > i.blank { visibility: hidden; }
+.week-row { display: grid; grid-template-columns: 70px 1fr 90px; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; }
+.week-row .track { height: 8px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.week-row .track i { display: block; height: 100%; background: var(--soft); }
+.week-row.current .track i { background: var(--accent); }
+.tod { width: 100%; border-collapse: collapse; font-size: 11px; }
+.tod th { font-weight: 400; color: var(--dim); text-align: right; padding: 3px 0; font-size: 10px; }
+.tod th:first-child, .tod td:first-child { text-align: left; }
+.tod td { text-align: right; padding: 4px 0; border-top: 1px solid var(--grid); }
+.tod tr.peak td:first-child { color: var(--accent); font-weight: 700; }
+.activity-caption { display: flex; justify-content: space-between; margin-top: 8px; }
 
 .legend {
     display: flex;
@@ -157,10 +278,15 @@ h2 + .card { margin-bottom: 14px; }
 .legend span:first-child { margin-right: 3px; }
 .legend span:last-child { margin-left: 3px; }
 
+/* 모델 --------------------------------------------------------------- */
+.model { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-top: 8px; font-size: 12px; }
+.model:first-child { margin-top: 0; }
+.model .track { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.model .track i { display: block; height: 100%; background: var(--accent); }
+
 /* 새로고침 ----------------------------------------------------------- */
-.action { display: flex; align-items: center; justify-content: space-between; }
-.action .note { font-size: 11px; color: var(--dim); }
-button {
+.action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+button.primary {
     padding: 5px 16px;
     border: 0;
     border-radius: 5px;
@@ -169,17 +295,26 @@ button {
     font: 600 12px "Segoe UI", sans-serif;
     cursor: pointer;
 }
-button:hover { filter: brightness(1.16); }
-button:active { filter: brightness(0.85); }
-button[disabled] { filter: none; opacity: 0.5; cursor: default; }
+button.primary:hover { filter: brightness(1.16); }
+button.primary:active { filter: brightness(0.85); }
+button.primary[disabled] { filter: none; opacity: 0.5; cursor: default; }
 
-.empty { padding: 6px 0; color: var(--dim); font-size: 12px; text-align: center; }
-
+/* 막대는 굴리는 동안만 보인다. 자리는 늘 잡아 둬 나타날 때 내용이 밀리지 않는다.
+   스크롤바 의사요소에는 transition 이 안 먹는다. 색을 등록된 변수(@property)로 두고
+   그 변수를 html 에서 옮겨 가게 하면 막대가 따라 칠해진다 — 나타날 땐 바로,
+   사라질 땐 0.4초에 걸쳐 (wx 페이지의 ScrollBar 와 같은 빠르기). */
+@property --thumb {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: transparent;
+}
+html { --thumb: transparent; transition: --thumb 0.4s ease-out; }
+html.scrolling { --thumb: var(--rim); transition: none; }
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
     border-radius: 5px;
-    background: var(--rim);
+    background-color: var(--thumb);
     background-clip: content-box;
 }
 </style>
@@ -187,47 +322,77 @@ button[disabled] { filter: none; opacity: 0.5; cursor: default; }
 
 <body>
 
-<h2>Today</h2>
-<div class="card today">
-    <div>
-        <div class="caption">TODAY COST</div>
-        <div class="value" id="cost">—</div>
-        <div class="note" id="calls"></div>
-    </div>
-    <div class="right">
-        <div class="caption">CACHE EFFICIENCY</div>
-        <div class="value" id="ratio">—</div>
-        <div class="note" id="saved"></div>
-    </div>
+<div class="banner" id="indexing" hidden>
+    <div id="indexing-text">Indexing usage history…</div>
+    <div class="bar"><i id="indexing-bar" style="width:0%"></i></div>
 </div>
 
-<h2>Plan limits</h2>
-<div class="card" id="limits"><div class="empty">reading…</div></div>
+<div id="sections">
 
-<h2>Trend</h2>
-<div class="card">
-    <div class="time-graph-container">
-        <div class="value-label-group value-label-ljust" id="trend-now"></div>
-        <div class="value-label-group value-label-rjust" id="trend-peak"></div>
-        <div class="time-graph-graphic" id="trend"></div>
+<section data-id="header">
+    <div class="header-period"><span class="plans" id="plans"></span><span class="seg" data-control="headerPeriod"></span></div>
+    <div class="card header">
+        <div>
+            <div class="caption" id="cost-caption">Today cost</div>
+            <div class="value num" id="cost">—</div>
+            <div class="note num" id="calls"></div>
+        </div>
+        <div class="right">
+            <div class="caption" id="ratio-caption">Cache efficiency</div>
+            <div class="value num" id="ratio">—</div>
+            <div class="note num" id="saved"></div>
+        </div>
     </div>
-    <div class="trend-dates"><span id="trend-from"></span><span id="trend-to"></span></div>
-</div>
+</section>
 
-<h2>Activity</h2>
-<div class="card">
-    <div id="heat"></div>
-    <div class="legend">
-        <span>less</span><span id="ramp"></span><span>more</span>
+<section data-id="planUsage">
+    <h2>Plan Usage</h2>
+    <div class="card" id="limits" data-skeleton="limits"></div>
+</section>
+
+<section data-id="codeOutput">
+    <h2>Code Output <span class="tail"><span class="seg" data-control="codePeriod"></span></span></h2>
+    <div class="card" id="code" data-skeleton="code"></div>
+</section>
+
+<section data-id="trend">
+    <h2>Trend</h2>
+    <div class="card">
+        <div class="controls center">
+            <span class="label">Metric</span><span class="seg" data-control="metric"></span>
+            <span class="label">Range</span><span class="seg" data-control="grain"></span>
+        </div>
+        <div id="trend" data-skeleton="trend"></div>
+        <div class="breakdown" id="breakdown" hidden></div>
     </div>
+</section>
+
+<section data-id="sessions">
+    <h2>Sessions <span class="tail"><span class="seg" data-control="sessionFilter"></span></span></h2>
+    <div class="card" id="sessions" data-skeleton="sessions"></div>
+</section>
+
+<section data-id="activity">
+    <h2>Activity</h2>
+    <div class="card">
+        <div class="controls center"><span class="seg" data-control="activity"></span></div>
+        <div id="activity" data-skeleton="activity"></div>
+    </div>
+</section>
+
+<section data-id="modelUsage">
+    <h2>Model Usage <span class="tail note">Top 4 · all time</span></h2>
+    <div class="card" id="models" data-skeleton="models"></div>
+</section>
+
 </div>
 
 <div class="card action">
     <div>
         <div>Refresh</div>
-        <div class="note">Ask ccusage again and re-read the records</div>
+        <div class="note" id="updated">Re-read the agent records</div>
     </div>
-    <button id="reload">Reload</button>
+    <button class="primary" id="reload">Reload</button>
 </div>
 
 <script>
@@ -235,9 +400,68 @@ button[disabled] { filter: none; opacity: 0.5; cursor: default; }
 
 var LEVELS = 4;
 var latest = null;
+var view = {
+    headerPeriod: 'today', codePeriod: 'today', metric: 'cost', grain: 'day',
+    sessionFilter: 'all', activity: 'week', picked: null, showAll: false,
+    showIdle: false, showHidden: false, openSession: null
+};
+var CHOICES = {
+    headerPeriod: [['today', 'Today'], ['all', 'All']],
+    codePeriod: [['today', 'Today'], ['all', 'All']],
+    metric: [['cost', 'Cost'], ['tokens', 'Tokens']],
+    grain: [['day', 'Day'], ['week', 'Week'], ['month', 'Month']],
+    sessionFilter: [['all', 'All'], ['active', 'Active']],
+    activity: [['week', '7d'], ['calendar', '5mo'], ['hourly', 'Hourly'], ['weekly', 'Weekly'],
+               ['tod', 'Time of day']]
+};
+var GRAIN_COUNT = {day: 30, week: 12, month: 12};
+var TOOL_NAMES = {
+    read: 'Read', editWrite: 'Edit / Write', search: 'Search', git: 'Git',
+    buildTest: 'Build / Test', terminal: 'Terminal', subagents: 'Subagents', web: 'Web'
+};
+var PATH_NAMES = {
+    product_code: 'Product code', test_code: 'Tests', docs_spec: 'Docs / Spec',
+    config_build: 'Config / Build', schema_migration: 'Schema / Migration',
+    vendor: 'Vendor', asset: 'Assets'
+};
+var AGENT_NAMES = {claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity'};
+var SESSION_LIMIT = 5;
+
+try {
+    var stored = JSON.parse(localStorage.getItem('usage-view') || '{}');
+    ['headerPeriod', 'codePeriod', 'metric', 'grain', 'sessionFilter', 'activity'].forEach(function (key) {
+        if (stored[key]) { view[key] = stored[key]; }
+    });
+} catch (error) { /* 저장소가 막혀 있어도 기본값으로 그린다 */ }
+
+function remember() {
+    try {
+        localStorage.setItem('usage-view', JSON.stringify({
+            headerPeriod: view.headerPeriod, codePeriod: view.codePeriod, metric: view.metric,
+            grain: view.grain, sessionFilter: view.sessionFilter, activity: view.activity
+        }));
+    } catch (error) { /* 무시 */ }
+}
+
+var scrollTimer = null;
+window.addEventListener('scroll', function () {
+    document.documentElement.classList.add('scrolling');
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function () {
+        document.documentElement.classList.remove('scrolling');
+    }, 700);
+}, {passive: true});
 
 function send(message) {
     window.chrome.webview.postMessage(message);
+}
+
+function el(id) { return document.getElementById(id); }
+
+function esc(text) {
+    return String(text == null ? '' : text).replace(/[&<>"']/g, function (c) {
+        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
 }
 
 function setTheme(theme) {
@@ -246,7 +470,16 @@ function setTheme(theme) {
         root.style.setProperty('--' + key, theme[key]);
     });
     root.style.colorScheme = theme.dark ? 'dark' : 'light';
+    root.style.setProperty('--series2', theme.dark ? '#c98430' : theme.warn);
     if (latest) { render(latest); }
+}
+
+function setProgress(value) {
+    var banner = el('indexing');
+    if (value === null || value >= 1) { banner.hidden = true; return; }
+    banner.hidden = false;
+    el('indexing-text').textContent = 'Indexing usage history… ' + Math.round(value * 100) + '%';
+    el('indexing-bar').style.width = (value * 100).toFixed(1) + '%';
 }
 
 /* 칸 하나가 유난히 바쁘면 나머지가 다 같은 색이 된다. 제곱근으로 눌러 편다. */
@@ -262,24 +495,196 @@ function shade(level) {
 }
 
 function money(value, digits) {
-    return '$' + value.toLocaleString('en-US', {
+    var currency = (latest && latest.currency) || 'USD';
+    var rate = currency === 'USD' ? 1 : ((latest && latest.rate) || 1);
+    var symbol = {USD: '$', KRW: '₩', CNY: '¥'}[currency] || '$';
+    if (currency === 'KRW') { digits = 0; }
+    return symbol + (value * rate).toLocaleString('en-US', {
         minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0});
 }
 
 function count(value) {
-    return value >= 1000 ? (value / 1000).toFixed(1) + 'K' : String(value);
+    value = value || 0;
+    var abs = Math.abs(value);
+    if (abs >= 1e9) { return (value / 1e9).toFixed(1) + 'B'; }
+    if (abs >= 1e6) { return (value / 1e6).toFixed(1) + 'M'; }
+    if (abs >= 1e3) { return (value / 1e3).toFixed(1) + 'K'; }
+    return String(Math.round(value));
 }
 
-function drawToday(data) {
-    document.getElementById('cost').textContent = money(data.cost);
-    document.getElementById('calls').textContent =
-        count(data.calls) + ' calls  /  ' + data.sessions + ' sessions';
-    document.getElementById('ratio').textContent = Math.round(data.ratio * 100) + '%';
-    document.getElementById('saved').textContent = '+ ' + money(data.saved) + ' saved today';
+function signed(value) {
+    return (value > 0 ? '+' : value < 0 ? '−' : '') + count(Math.abs(value));
+}
+
+function ago(ms) {
+    var seconds = Math.max(0, (Date.now() - ms) / 1000);
+    if (seconds < 60) { return 'just now'; }
+    if (seconds < 3600) { return Math.floor(seconds / 60) + 'm ago'; }
+    if (seconds < 86400) { return Math.floor(seconds / 3600) + 'h ago'; }
+    return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function shortDay(day) { return day.slice(5).replace('-', '/'); }
+
+function toDate(day) {
+    var parts = day.split('-');
+    return new Date(+parts[0], +parts[1] - 1, +parts[2]);
+}
+
+function dayKey(date) {
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0');
+}
+
+/* 묶는 단위의 열쇠. 주는 월요일에서 시작한다. */
+function bucketOf(day, grain) {
+    if (grain === 'day') { return day; }
+    if (grain === 'month') { return day.slice(0, 7); }
+    var date = toDate(day);
+    date.setDate(date.getDate() - (date.getDay() + 6) % 7);
+    return dayKey(date);
+}
+
+function bucketLabel(key, grain) {
+    if (grain === 'month') { return key.slice(5) + '/' + key.slice(2, 4); }
+    return shortDay(key);
+}
+
+/* 막대 그림 한 장. points = [{value, title, key, now}], 음수가 있으면 0 선을 가운데로
+   올린다. 축은 언제나 0 에서 시작한다 (막대 길이가 곧 값이다). */
+function bars(points, options) {
+    options = options || {};
+    var high = Math.max.apply(null, [0].concat(points.map(function (p) { return p.value; })));
+    var low = Math.min.apply(null, [0].concat(points.map(function (p) { return p.value; })));
+    var range = (high - low) || 1;
+    var zero = -low / range * 100;
+    var html = '<div class="bars' + (low < 0 ? ' signed' : '') + (options.small ? ' small' : '') + '">';
+    if (low < 0) { html += '<span class="zero" style="bottom:' + zero.toFixed(2) + '%"></span>'; }
+    points.forEach(function (p) {
+        var size = Math.abs(p.value) / range * 100;
+        var style = p.value < 0
+            ? 'bottom:' + (zero - size).toFixed(2) + '%;height:' + size.toFixed(2) + '%'
+            : 'bottom:' + zero.toFixed(2) + '%;height:' + size.toFixed(2) + '%';
+        // 0 이 아닌 값은 1px 이라도 보이게 한다.
+        if (p.value) { style += ';min-height:1px'; }
+        html += '<span class="slot' + (p.now ? ' now' : '') + (p.picked ? ' picked' : '') + '"' +
+            (p.key ? ' data-bucket="' + p.key + '"' : '') + ' title="' + esc(p.title || '') + '">' +
+            (p.value ? '<i class="' + (p.value < 0 ? 'neg' : '') + '" style="' + style + '"></i>' : '') +
+            '</span>';
+    });
+    return html + '</div>';
+}
+
+function chart(head, body, axis) {
+    return '<div class="chart"><div class="chart-head">' + head + '</div>' + body +
+        (axis ? '<div class="axis">' + axis + '</div>' : '') + '</div>';
+}
+
+/* 카드별 뼈대. 높이는 실제로 그려진 카드를 재서 맞췄다 (469px 창 기준). */
+function sk(width, height) {
+    return '<span class="sk' + (height ? '' : ' line') + '" style="width:' + width +
+        (height ? ';height:' + height + 'px' : '') + '"></span>';
+}
+
+var SKELETON = {
+    limits: function () {
+        var row = '<div class="sk-stack">' + '<div class="sk-row" style="height:17px">' + sk('38%') +
+            sk('12%') + '</div>' + sk('100%', 6) + '</div>';
+        return [row, row, row, row, row].join('<div style="height:14px"></div>');
+    },
+    code: function () {
+        var kpi = '<div class="sk-stack" style="align-items:center;display:flex;flex-direction:column">' +
+            sk('60%') + sk('40%', 16) + sk('50%') + '</div>';
+        return '<div class="kpis">' + kpi + kpi + kpi + '</div>' +
+            '<div class="chart" style="margin-top:12px">' + '<div class="sk-row" style="margin-bottom:6px">' +
+            sk('35%') + sk('30%') + '</div>' + sk('100%', 64) + '<div style="height:45px"></div></div>';
+    },
+    trend: function () {
+        return '<div class="chart">' + sk('40%') + '<div style="height:5px"></div>' + sk('100%', 64) + '</div>' +
+            '<div class="chart">' + sk('35%') + '<div style="height:5px"></div>' + sk('100%', 34) +
+            '<div style="height:24px"></div></div>';
+    },
+    sessions: function () {
+        return '<div class="sk-stack">' + '<div class="sk-row">' + sk('45%') + sk('15%') + '</div>' +
+            sk('70%') + sk('100%', 4) + sk('40%') + '</div>' +
+            '<div style="height:48px"></div>' + sk('35%');
+    },
+    activity: function () {
+        return '<div class="heat-box" style="width:100%;max-width:var(--chart-max)">' + sk('100%', 110) +
+            '<div style="height:8px"></div><div class="sk-row" style="justify-content:flex-end">' +
+            sk('30%') + '</div></div>';
+    },
+    models: function () {
+        var row = '<div class="sk-stack">' + '<div class="sk-row">' + sk('40%') + sk('28%') + '</div>' +
+            sk('100%', 5) + '</div>';
+        return [row, row, row, row, row].join('<div style="height:12px"></div>');
+    }
+};
+
+document.querySelectorAll('[data-skeleton]').forEach(function (host) {
+    host.innerHTML = SKELETON[host.getAttribute('data-skeleton')]();
+});
+
+function drawControls() {
+    document.querySelectorAll('[data-control]').forEach(function (host) {
+        var name = host.getAttribute('data-control');
+        host.innerHTML = CHOICES[name].map(function (choice) {
+            return '<button data-value="' + choice[0] + '"' +
+                (view[name] === choice[0] ? ' class="on"' : '') + '>' + choice[1] + '</button>';
+        }).join('');
+    });
+}
+
+document.addEventListener('click', function (event) {
+    var target = event.target.closest('button, [data-bucket], [data-act]');
+    if (!target) { return; }
+    var control = target.parentElement && target.parentElement.getAttribute('data-control');
+    if (control) {
+        view[control] = target.getAttribute('data-value');
+        if (control === 'grain') { view.picked = null; }
+        remember();
+        render(latest);
+        return;
+    }
+    if (target.hasAttribute('data-bucket')) {
+        var key = target.getAttribute('data-bucket');
+        view.picked = view.picked === key ? null : key;
+        render(latest);
+        return;
+    }
+    var act = target.getAttribute('data-act');
+    if (!act) { return; }
+    var arg = target.getAttribute('data-arg') || '';
+    if (act === 'toggle-session') { view.openSession = view.openSession === arg ? null : arg; }
+    else if (act === 'more') { view.showAll = !view.showAll; }
+    else if (act === 'idle') { view.showIdle = !view.showIdle; }
+    else if (act === 'hidden') { view.showHidden = !view.showHidden; }
+    else { send(act + ':' + arg); return; }
+    render(latest);
+});
+
+/* 머리판 ------------------------------------------------------------- */
+function drawHeader(data) {
+    var all = view.headerPeriod === 'all';
+    var totals = all ? data.all : data.today;
+    el('cost-caption').textContent = all ? 'All-time cost' : 'Today cost';
+    el('ratio-caption').textContent = all ? 'Avg cache efficiency' : 'Cache efficiency';
+    el('cost').textContent = money(totals.cost);
+    el('calls').textContent = count(totals.calls) + ' calls  /  ' + totals.sessions + ' sessions';
+    el('ratio').textContent = Math.round(totals.ratio * 100) + '%';
+    el('saved').textContent = '+ ' + money(totals.saved) + (all ? ' saved total' : ' saved today');
+}
+
+/* 한도 --------------------------------------------------------------- */
+function drawPlans(plans) {
+    el('plans').innerHTML = (plans || []).map(function (plan) {
+        return '<span class="plan"><span class="provider ' + plan.provider + '">' +
+            AGENT_NAMES[plan.provider].toUpperCase() + '</span>' + esc(plan.name) + '</span>';
+    }).join('');
 }
 
 function drawLimits(limits) {
-    var host = document.getElementById('limits');
+    var host = el('limits');
     if (limits === null) {
         host.innerHTML = '<div class="empty">plan limits unavailable — sign in again</div>';
         return;
@@ -292,106 +697,453 @@ function drawLimits(limits) {
         var tint = limit.severity === 'critical' ? 'var(--close)'
             : limit.severity === 'warning' ? 'var(--warn)' : 'var(--accent)';
         return '<div class="limit">' +
-            '<div class="head"><span class="name"></span>' +
-            '<span class="when"></span>' +
-            '<span class="pct" style="color:' + tint + '"></span></div>' +
-            '<div class="bar"><i style="width:' + Math.min(100, limit.percent) +
-            '%;background:' + tint + '"></i></div></div>';
+            '<div class="head"><span class="name">' + esc(limit.name) + '</span>' +
+            '<span class="when">' + esc(limit.when) + '</span>' +
+            '<span class="elapsed">' + (limit.elapsed === null ? '' : limit.elapsed + '% elapsed') +
+            '</span><span class="pct num" style="color:' + tint + '">' + limit.percent + '%</span></div>' +
+            '<div class="bar">' +
+            (limit.elapsed === null ? '' : '<i class="time" style="width:' + limit.elapsed + '%"></i>') +
+            '<i style="width:' + Math.min(100, limit.percent) + '%;background:' + tint + '"></i>' +
+            '</div></div>';
     }).join('');
-    // 이름과 남은 시간은 서버가 준 글자라 innerHTML 로 심지 않는다.
-    var rows = host.querySelectorAll('.limit');
-    limits.forEach(function (limit, index) {
-        rows[index].querySelector('.name').textContent = limit.name;
-        rows[index].querySelector('.when').textContent = limit.when;
-        rows[index].querySelector('.pct').textContent = limit.percent + '%';
+}
+
+/* 코드 산출 ---------------------------------------------------------- */
+function sumCode(code, days) {
+    var total = {commits: 0, added: 0, removed: 0, paths: {}};
+    days.forEach(function (day) {
+        var item = code[day];
+        if (!item) { return; }
+        total.commits += item.commits;
+        total.added += item.added;
+        total.removed += item.removed;
+        Object.keys(item.paths).forEach(function (name) {
+            var slot = total.paths[name] || (total.paths[name] = [0, 0]);
+            slot[0] += item.paths[name][0];
+            slot[1] += item.paths[name][1];
+        });
+    });
+    return total;
+}
+
+function drawCode(data) {
+    var host = el('code');
+    var code = data.code || {};
+    var days = Object.keys(code).sort();
+    if (!days.length) {
+        // 처음 git 을 세는 몇 초 동안은 뼈대를 그대로 둔다. 다 세고도 없을 때만 알린다.
+        host.innerHTML = data.repos ? '<div class="empty">no commits yet</div>' : SKELETON.code();
+        return;
+    }
+    var today = data.activity.today;
+    var all = view.codePeriod === 'all';
+    var pick = all ? days : [today];
+    var total = sumCode(code, pick);
+    var everything = sumCode(code, days);
+    var net = total.added - total.removed;
+    var cost = all ? data.all.cost : data.today.cost;
+    var per100 = total.added ? cost / total.added * 100 : 0;
+
+    var html = '<div class="kpis">' +
+        '<div class="kpi"><div class="caption">Commits</div><div class="value num">' +
+        total.commits + '</div><div class="note num">' +
+        (all ? 'all time' : everything.commits + ' total') + '</div></div>' +
+        '<div class="kpi"><div class="caption">Net lines</div><div class="value num">' +
+        signed(net) + '</div><div class="note num">' +
+        count(total.added + total.removed) + ' lines</div></div>' +
+        '<div class="kpi"><div class="caption">$/100 added</div><div class="value num">' +
+        (total.added ? money(per100, 2) : '—') + '</div><div class="note num">avg ' +
+        money(everything.added ? data.all.cost / everything.added * 100 : 0, 2) + '</div></div>' +
+        '</div>';
+
+    // 지난 7 일의 하루 순증. 늘면 위로(파랑), 줄면 아래로(주황).
+    var week = [];
+    for (var offset = 6; offset >= 0; offset -= 1) {
+        var date = toDate(today);
+        date.setDate(date.getDate() - offset);
+        week.push(dayKey(date));
+    }
+    var points = week.map(function (day) {
+        var gain = code[day] ? code[day].added - code[day].removed : 0;
+        return {value: gain, now: day === today, title: shortDay(day) + '  ' + signed(gain) + ' net lines'};
+    });
+    var weekNet = points.reduce(function (sum, p) { return sum + p.value; }, 0);
+    var totalNet = everything.added - everything.removed;
+    html += '<div style="margin-top:12px">' + chart(
+        '<span>Net lines · last 7 days</span><span><b>' + signed(weekNet) + '</b> this week · ' +
+        signed(totalNet) + ' all time</span>',
+        bars(points),
+        week.map(function (day) { return '<span>' + shortDay(day) + '</span>'; }).join('')) +
+        '<div class="note" style="text-align:center;margin-top:6px">' + data.repos + ' repos</div></div>';
+    host.innerHTML = html;
+}
+
+/* 추세 --------------------------------------------------------------- */
+function getBuckets(data) {
+    var grain = view.grain;
+    var buckets = {};
+    function slot(key) {
+        return buckets[key] || (buckets[key] = {
+            key: key, cost: 0, tokens: 0, calls: 0, net: 0, days: []});
+    }
+    Object.keys(data.daily).forEach(function (day) {
+        var item = data.daily[day];
+        var bucket = slot(bucketOf(day, grain));
+        bucket.cost += item.cost;
+        bucket.tokens += item.tokens;
+        bucket.calls += item.calls;
+        bucket.days.push(day);
+    });
+    var first = Object.keys(buckets).sort()[0];
+    Object.keys(data.code || {}).forEach(function (day) {
+        var key = bucketOf(day, grain);
+        // 쓰기 전의 옛 커밋까지 그리면 그림이 좌우로 갈라진다. 사용 기록이 시작된 뒤만.
+        if (first && key < first) { return; }
+        var bucket = slot(key);
+        bucket.net += data.code[day].added - data.code[day].removed;
+        if (bucket.days.indexOf(day) < 0) { bucket.days.push(day); }
+    });
+    return Object.keys(buckets).sort().slice(-GRAIN_COUNT[grain]).map(function (key) {
+        return buckets[key];
     });
 }
 
-function drawTrend(points) {
-    var host = document.getElementById('trend');
-    host.innerHTML = '';
-    if (!points.length) { return; }
-
-    /* comjs 의 TimeGraph 와 같이 가장 큰 값을 100% 로 잡는다. 눈금이 아니라
-       서로의 크기를 견주는 그림이라 축을 따로 두지 않는다. */
-    var peak = Math.max.apply(null, points.map(function (point) {
-        return point[1];
-    })) || 1;
+function drawTrend(data) {
+    var host = el('trend');
+    var points = getBuckets(data);
+    if (!points.length) {
+        host.innerHTML = '<div class="empty">No trend data yet</div>';
+        el('breakdown').hidden = true;
+        return;
+    }
+    var metric = view.metric;
+    function format(value, digits) { return metric === 'cost' ? money(value, digits) : count(value); }
     var last = points.length - 1;
+    var current = bucketOf(data.activity.today, view.grain);
+    var peak = Math.max.apply(null, points.map(function (p) { return p[metric]; }));
+    var axis = '<span>' + bucketLabel(points[0].key, view.grain) + '</span><span>' +
+        bucketLabel(points[last].key, view.grain) + '</span>';
 
-    document.getElementById('trend-now').textContent =
-        'Today: ' + money(points[last][1]);
-    document.getElementById('trend-peak').textContent = 'Peak: ' + money(peak);
-    document.getElementById('trend-from').textContent =
-        points[0][0].slice(5).replace('-', '/');
-    document.getElementById('trend-to').textContent =
-        points[last][0].slice(5).replace('-', '/');
+    function slots(value) {
+        return points.map(function (p) {
+            return {value: value(p), key: p.key, now: p.key === current, picked: p.key === view.picked,
+                    title: bucketLabel(p.key, view.grain) + '  ' + format(p[metric], 2) + '  ' +
+                        p.calls + ' requests  ' + signed(p.net) + ' net lines'};
+        });
+    }
+    // 돈(또는 토큰)과 순증 줄은 단위가 달라 한 축에 겹치지 않는다. 날짜 축을 맞춘 두 장.
+    host.innerHTML =
+        chart('<span>' + (metric === 'cost' ? 'Cost' : 'Tokens') + ' · peak ' + format(peak) +
+              '</span><span>now <b>' + format(points[last][metric]) + '</b></span>',
+              bars(slots(function (p) { return p[metric]; }))) +
+        chart('<span>Net lines committed</span><span>now <b>' + signed(points[last].net) + '</b></span>',
+              bars(slots(function (p) { return p.net; }), {small: true}), axis);
+    drawBreakdown(data, points);
+}
 
-    host.innerHTML = points.map(function (point, index) {
-        var height = Math.min(100, Math.max(0, point[1] / peak * 100));
-        return '<div class="time-graph-graphic-element' +
-            (index === last ? ' today' : '') + '" style="height:' +
-            height.toFixed(3) + '%" title="' + point[0] + '   ' +
-            money(point[1], 2) + '"></div>';
+function meterRows(rows, top, formatter) {
+    return rows.map(function (row) {
+        return '<div class="meter"><span>' + esc(row[0]) + '</span><span class="track"><i style="width:' +
+            (top ? row[1] / top * 100 : 0).toFixed(2) + '%"></i></span><span class="val num">' +
+            formatter(row) + '</span></div>';
     }).join('');
 }
 
-function drawHeat(data) {
-    var host = document.getElementById('heat');
-    var peak = 1;
-    data.days.forEach(function (day, row) {
-        data.hours[row].forEach(function (value) { peak = Math.max(peak, value); });
-    });
+function drawBreakdown(data, points) {
+    var host = el('breakdown');
+    var bucket = null;
+    points.forEach(function (point) { if (point.key === view.picked) { bucket = point; } });
+    if (!bucket) { host.hidden = true; return; }
+    host.hidden = false;
 
-    var html = '<span></span><div class="hours">';
+    var panorama = [0, 0, 0, 0, 0];
+    var tools = {};
+    bucket.days.forEach(function (day) {
+        var item = data.daily[day];
+        if (!item) { return; }
+        item.panorama.forEach(function (value, index) { panorama[index] += value || 0; });
+        Object.keys(item.tools).forEach(function (name) {
+            var slot = tools[name] || (tools[name] = [0, 0]);
+            slot[0] += item.tools[name][0];
+            slot[1] += item.tools[name][1];
+        });
+    });
+    var code = sumCode(data.code || {}, bucket.days);
+
+    var tokenRows = [['Input', panorama[0]], ['Output', panorama[1]], ['Cache read', panorama[2]],
+                     ['Cache write', panorama[3]], ['Thinking', panorama[4]]];
+    var tokenTop = Math.max.apply(null, tokenRows.map(function (r) { return r[1]; }));
+    var toolRows = Object.keys(tools).map(function (name) {
+        return [TOOL_NAMES[name] || name, tools[name][0], tools[name][1]];
+    }).sort(function (a, b) { return b[1] - a[1]; });
+    var toolTop = toolRows.length ? toolRows[0][1] : 0;
+    var pathRows = Object.keys(code.paths).map(function (name) {
+        return [PATH_NAMES[name] || name, code.paths[name][0] - code.paths[name][1],
+                code.paths[name][0], code.paths[name][1]];
+    }).sort(function (a, b) { return Math.abs(b[1]) - Math.abs(a[1]); });
+    var pathTop = Math.max.apply(null, [0].concat(pathRows.map(function (r) { return Math.abs(r[1]); })));
+
+    host.innerHTML =
+        '<h3><span>' + (view.grain === 'week' ? 'Week ' : '') + bucketLabel(bucket.key, view.grain) +
+        '</span><span class="note num">' + money(bucket.cost, 2) + ' · ' + bucket.calls +
+        ' requests</span></h3>' +
+        '<h3><span>Token panorama</span><span class="note">input + output · cache</span></h3>' +
+        meterRows(tokenRows, tokenTop, function (r) { return count(r[1]); }) +
+        '<h3><span>Tool usage</span><span class="note">calls · ≈tok</span></h3>' +
+        (toolRows.length ? meterRows(toolRows, toolTop, function (r) {
+            return r[1] + ' · ≈' + count(r[2]);
+        }) : '<div class="empty">No tool data</div>') +
+        '<h3><span>Net lines committed</span><span class="note num">' + count(code.added) +
+        ' added / ' + count(code.removed) + ' removed</span></h3>' +
+        (pathRows.length ? meterRows(pathRows.map(function (r) {
+            return [r[0], Math.abs(r[1]), r[1]];
+        }), pathTop, function (r) { return signed(r[2]); }) :
+            '<div class="empty">No commits for this period</div>');
+}
+
+/* 세션 --------------------------------------------------------------- */
+function drawSessions(data) {
+    var host = el('sessions');
+    var hidden = data.hidden || [];
+    var rows = data.sessions.filter(function (item) {
+        return view.showHidden || hidden.indexOf(item.project) < 0;
+    });
+    var live = rows.filter(function (item) { return item.state !== 'idle'; });
+    var idle = rows.length - live.length;
+    if (view.sessionFilter === 'active') {
+        rows = live;
+    } else if (!view.showIdle) {
+        // 일 없는 세션은 접어 둔다. 살아 있는 것이 하나도 없으면 최근 것을 보인다.
+        rows = live.length ? live : rows;
+    }
+    var shown = view.showAll ? rows : rows.slice(0, SESSION_LIMIT);
+
+    var html = shown.length ? shown.map(function (item) {
+        var pct = item.contextMax ? Math.min(100, item.context / item.contextMax * 100) : 0;
+        var key = item.provider + ':' + item.session;
+        var open = view.openSession === key;
+        var tools = Object.keys(item.tools || {}).map(function (name) {
+            return [TOOL_NAMES[name] || name, item.tools[name]];
+        }).sort(function (a, b) { return b[1] - a[1]; });
+        var toolTotal = tools.reduce(function (sum, row) { return sum + row[1]; }, 0);
+        var state = pct >= 95 ? 'at limit' : pct >= 85 ? 'compact soon' : pct >= 70 ? 'near limit' : '';
+        return '<div class="session">' +
+            '<div class="top"><span class="provider ' + item.provider + '">' +
+            AGENT_NAMES[item.provider].toUpperCase() + '</span>' +
+            '<span class="project">' + esc(item.project || '(no folder)') + '</span>' +
+            '<span class="chip ' + item.state + '">' + item.state + '</span>' +
+            '<span class="ago note">' + ago(item.last) + '</span></div>' +
+            '<div class="meta note num">' +
+            (item.model ? '<span>' + esc(item.model) + '</span>' : '') +
+            (item.source ? '<span>' + esc(item.source) + '</span>' : '') +
+            (item.tokens ? '<span>' + count(item.tokens) + ' tok</span>' : '') +
+            (item.cost ? '<span>' + money(item.cost, 2) + '</span>' : '') +
+            '<span>' + item.calls + (item.provider === 'antigravity' ? ' steps' : ' calls') + '</span>' +
+            '</div>' +
+            (item.contextMax ? '<div class="ctx note num"><span class="track"><i class="' +
+                (pct >= 95 ? 'full' : pct >= 70 ? 'near' : '') + '" style="width:' + pct.toFixed(1) +
+                '%"></i></span><span>Context ' + Math.round(pct) + '%' +
+                (state ? ' · ' + state : ' · ' + count(item.contextMax - item.context) + ' left') +
+                '</span></div>' : '') +
+            (open ? '<div class="breakdown" style="margin-top:6px;padding-top:6px">' +
+                (tools.length ? meterRows(tools, tools[0][1], function (r) {
+                    return Math.round(r[1] / toolTotal * 100) + '%';
+                }) : '<div class="empty">No tool data</div>') + '</div>' : '') +
+            '<div class="actions">' +
+            (item.provider !== 'antigravity' ? '<button class="link" data-act="toggle-session" data-arg="' +
+                esc(key) + '">' + (open ? 'Hide breakdown' : 'Show breakdown') + '</button>' : '') +
+            (item.project ? '<button class="link" data-act="' +
+                (hidden.indexOf(item.project) < 0 ? 'hide' : 'unhide') + '" data-arg="' +
+                esc(item.project) + '">' + (hidden.indexOf(item.project) < 0 ? 'Hide' : 'Unhide') +
+                '</button><button class="link" data-act="exclude" data-arg="' + esc(item.project) +
+                '">Exclude</button>' : '') +
+            '</div></div>';
+    }).join('') : '<div class="empty">No active sessions</div>';
+
+    var foot = [];
+    if (rows.length > SESSION_LIMIT) {
+        foot.push('<button class="link" data-act="more">' +
+            (view.showAll ? 'Show less' : 'Show ' + (rows.length - SESSION_LIMIT) + ' more') + '</button>');
+    }
+    if (view.sessionFilter === 'all' && idle && live.length) {
+        foot.push('<button class="link" data-act="idle">' + (view.showIdle ? 'Hide ' : 'Show ') +
+            idle + ' idle session' + (idle === 1 ? '' : 's') + '</button>');
+    }
+    if (hidden.length) {
+        foot.push('<button class="link" data-act="hidden">' + hidden.length + ' hidden project' +
+            (hidden.length === 1 ? '' : 's') + ' · ' + (view.showHidden ? 'hide' : 'show') + '</button>');
+    }
+    if (foot.length) { html += '<div class="sessions-foot">' + foot.join('') + '</div>'; }
+    host.innerHTML = html;
+}
+
+/* 활동 --------------------------------------------------------------- */
+function drawWeekHeat(activity) {
+    var peak = 1;
+    activity.heat.forEach(function (row) {
+        row.forEach(function (value) { peak = Math.max(peak, value); });
+    });
+    var html = '<div class="heat-box"><div class="heat"><span></span><div class="hours">';
     for (var hour = 0; hour < 24; hour += 1) {
-        html += '<span class="hour-label">' +
-            (hour % 6 === 0 ? hour : '') + '</span>';
+        html += '<span class="hour-label">' + (hour % 6 === 0 ? hour : '') + '</span>';
     }
     html += '</div>';
-
-    data.days.forEach(function (day, row) {
-        html += '<span class="row-label">' + day.slice(5).replace('-', '/') +
-            '</span><div class="cells">';
-        data.hours[row].forEach(function (value) {
-            html += '<i style="background:' + shade(level(value, peak)) + '"></i>';
+    activity.days.forEach(function (day, row) {
+        html += '<span class="row-label">' + shortDay(day) + '</span><div class="cells">';
+        activity.heat[row].forEach(function (value, hour) {
+            html += '<i title="' + shortDay(day) + ' ' + hour + ':00  ' + count(value) + ' tok" ' +
+                'style="background:' + shade(level(value, peak)) + '"></i>';
         });
         html += '</div>';
     });
-    host.innerHTML = html;
+    return html + '</div>' + legend() + '</div>';
+}
 
+function drawCalendar(activity) {
+    var days = activity.calendar;
+    var peak = Math.max.apply(null, [1].concat(days.map(function (d) { return d[1]; })));
+    var first = toDate(days[0][0]).getDay();
+    var cells = '';
+    for (var blank = 0; blank < first; blank += 1) { cells += '<i class="blank"></i>'; }
+    cells += days.map(function (d) {
+        return '<i title="' + d[0] + '  ' + count(d[1]) + ' tok" style="background:' +
+            shade(level(d[1], peak)) + '"></i>';
+    }).join('');
+    var total = days.reduce(function (sum, d) { return sum + d[1]; }, 0);
+    return '<div class="heat-box"><div class="calendar">' + cells + '</div>' + legend() +
+        '<div class="activity-caption note"><span>5mo activity</span><span class="num">' +
+        count(total) + ' tok</span></div></div>';
+}
+
+function drawHourly(activity) {
+    var values = activity.hourly.map(function (h) { return h[0]; });
+    var peak = Math.max.apply(null, values);
+    var peakHour = values.indexOf(peak);
+    var points = values.map(function (value, hour) {
+        return {value: value, now: hour === peakHour,
+                title: hour + ':00  ' + count(value) + ' tok  ' + money(activity.hourly[hour][1], 2)};
+    });
+    return chart('<span>Hourly · last 30 days</span><span>peak <b>' + peakHour + ':00</b></span>',
+                 bars(points), '<span>0</span><span>6</span><span>12</span><span>18</span><span>23</span>');
+}
+
+function drawWeekly(activity) {
+    var weeks = activity.weeks;
+    var peak = Math.max.apply(null, weeks.map(function (w) { return w.tokens; })) || 1;
+    var total = weeks.reduce(function (sum, w) { return sum + w.tokens; }, 0);
+    return '<div class="chart">' + weeks.map(function (week, index) {
+        var current = index === weeks.length - 1;
+        var age = weeks.length - 1 - index;
+        return '<div class="week-row' + (current ? ' current' : '') + '"><span class="note">' +
+            (current ? 'current' : age + 'w ago') + '</span><span class="track"><i style="width:' +
+            (week.tokens / peak * 100).toFixed(2) + '%"></i></span><span class="num" style="text-align:right">' +
+            count(week.tokens) + ' · ' + money(week.cost) + '</span></div>';
+    }).join('') + '<div class="activity-caption note"><span>4-week total</span><span class="num">' +
+        count(total) + ' tok</span></div></div>';
+}
+
+function drawTimeOfDay(activity) {
+    var parts = [['Night', 0, 6], ['Morning', 6, 12], ['Afternoon', 12, 18], ['Evening', 18, 24]];
+    var rows = parts.map(function (part) {
+        var sum = [0, 0, 0];
+        for (var hour = part[1]; hour < part[2]; hour += 1) {
+            sum[0] += activity.hourly[hour][0];
+            sum[1] += activity.hourly[hour][1];
+            sum[2] += activity.hourly[hour][2];
+        }
+        return [part[0] + ' (' + part[1] + '–' + part[2] + ')', sum];
+    });
+    var totalCost = rows.reduce(function (s, r) { return s + r[1][1]; }, 0);
+    var peak = rows.reduce(function (best, r) { return r[1][0] > best[1][0] ? r : best; }, rows[0]);
+    return '<table class="tod num"><tr><th></th><th>Tokens</th><th>Cost</th><th>Requests</th><th>%</th></tr>' +
+        rows.map(function (r) {
+            return '<tr' + (r === peak ? ' class="peak"' : '') + '><td>' + r[0] + '</td><td>' +
+                count(r[1][0]) + '</td><td>' + money(r[1][1]) + '</td><td>' + count(r[1][2]) + '</td><td>' +
+                (totalCost ? Math.round(r[1][1] / totalCost * 100) : 0) + '%</td></tr>';
+        }).join('') + '</table><div class="activity-caption note"><span>Peak: ' +
+        peak[0] + '</span><span class="num">30d · ' + money(totalCost) + ' total</span></div>';
+}
+
+function legend() {
     var ramp = '';
     for (var index = 0; index <= LEVELS; index += 1) {
         ramp += '<i style="background:' + shade(index) + '"></i>';
     }
-    document.getElementById('ramp').innerHTML =
-        '<span style="display:flex;gap:3px">' + ramp + '</span>';
+    return '<div class="legend"><span>less</span>' + ramp + '<span>more</span></div>';
+}
+
+function drawActivity(data) {
+    var draw = {week: drawWeekHeat, calendar: drawCalendar, hourly: drawHourly,
+                weekly: drawWeekly, tod: drawTimeOfDay}[view.activity] || drawWeekHeat;
+    el('activity').innerHTML = draw(data.activity);
+}
+
+/* 모델 --------------------------------------------------------------- */
+function drawModels(models) {
+    var host = el('models');
+    if (!models.length) { host.innerHTML = '<div class="empty">No data</div>'; return; }
+    var total = models.reduce(function (sum, m) { return sum + m.cost; }, 0) || 1;
+    host.innerHTML = models.map(function (m) {
+        return '<div class="model"><span>' + esc(m.model) +
+            (m.provider ? ' <span class="provider ' + m.provider + '">' + AGENT_NAMES[m.provider] + '</span>' : '') +
+            '</span><span class="num">' + money(m.cost) + ' <span class="note">' +
+            Math.round(m.cost / total * 100) + '% · ' + count(m.tokens) + ' tok</span></span>' +
+            '<span class="track"><i style="width:' + (m.cost / total * 100).toFixed(2) + '%"></i></span></div>';
+    }).join('');
+}
+
+/* 묶음 순서·숨김은 설정에서 온다. */
+function arrangeSections(sections) {
+    if (!sections) { return; }
+    var host = el('sections');
+    var nodes = {};
+    host.querySelectorAll('section[data-id]').forEach(function (node) {
+        nodes[node.getAttribute('data-id')] = node;
+    });
+    if (nodes.header) { host.appendChild(nodes.header); }
+    sections.forEach(function (item) {
+        var node = nodes[item.id];
+        if (!node) { return; }
+        node.hidden = !!item.hidden;
+        host.appendChild(node);
+    });
+}
+
+function drawUpdated() {
+    if (!latest) { return; }
+    el('updated').textContent = 'last run · ' + ago(latest.updated * 1000);
 }
 
 function render(data) {
+    if (!data) { return; }
     latest = data;
-    document.getElementById('reload').disabled = false;
-    document.getElementById('reload').textContent = 'Reload';
-    drawToday(data);
-    drawLimits(data.limits);
-    drawTrend(data.trend);
-    drawHeat(data);
+    el('reload').disabled = false;
+    el('reload').textContent = 'Reload';
+    drawControls();
+    arrangeSections(data.sections);
+    var parts = [['header', drawHeader], ['plans', function () { drawPlans(data.plans); }],
+                 ['limits', function () { drawLimits(data.limits); }],
+                 ['code', drawCode], ['trend', drawTrend], ['sessions', drawSessions],
+                 ['activity', drawActivity], ['models', function () { drawModels(data.models); }]];
+    // 한 묶음이 깨져도 나머지는 그린다.
+    parts.forEach(function (part) {
+        try { part[1](data); } catch (error) { console.error(part[0], error); }
+    });
+    drawUpdated();
 }
 
-function busy() {
-    var button = document.getElementById('reload');
+setInterval(drawUpdated, 15000);
+
+el('reload').addEventListener('click', function () {
+    var button = el('reload');
     button.disabled = true;
-    button.textContent = '…';
-}
-
-document.getElementById('reload').addEventListener('click', function () {
-    busy();
+    button.textContent = 'Reading…';
     send('reload');
 });
 
+drawControls();
 send('ready');
 </script>
-
 </body>
 
 </html>

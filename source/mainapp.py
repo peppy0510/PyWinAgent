@@ -10,6 +10,8 @@ email: peppy0510@hotmail.com
 import os
 import wx
 
+from companions import QuotaWidget
+from companions import is_windows_dark
 from settingsbox import SettingsBox
 from sidemenu import SideMenu
 from titlebar import TitleBar
@@ -35,7 +37,7 @@ TICK_INTERVAL = 150
 DEFAULT_SIZE = (460, 720)
 
 # 사이드 메뉴의 차례가 곧 페이지의 차례다. None 은 구분선이라 페이지가 없다.
-MENU_ITEMS = (('TTS', 'sound'), ('Usage', 'chart'), None, ('Settings', 'settings'))
+MENU_ITEMS = (('Usage', 'chart'), ('TTS', 'sound'), None, ('Settings', 'settings'))
 
 # 캡션을 떼고 그 자리를 직접 그린다. 크기 조절과 스냅은 그대로 남는다.
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
@@ -48,6 +50,8 @@ MIN_VISIBLE_HEIGHT = 32
 class MainFrame(wx.Frame):
 
     stored_rect = None
+    # 생성이 끝나기 전에는 저장하지 않는다. 창 자리를 되살리기 전이라 빈 값이 덮인다.
+    started = False
     # 흉내 낸 최대화 이전의 자리. None 이면 최대화 상태가 아니다.
     restore_bounds = None
 
@@ -57,16 +61,25 @@ class MainFrame(wx.Frame):
                          style=FRAME_STYLE)
         apply_no_caption(self)
 
-        self.theme_name = settings.get('theme', 'dark')
+        self.theme_name = self.resolve_theme(settings.get('theme', 'dark'))
         theme = THEMES[self.theme_name]
+        self.widget = None
+        self.widget_position = settings.get('compact_widget_position')
+        self.last_data = None
 
         self.set_icon()
 
         self.book = wx.Simplebook(self)
         self.ttsbox = TtsBox(self.book, theme)
-        self.usagebox = UsageView(self.book, theme)
-        self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings)
-        for page in (self.ttsbox, self.usagebox, self.settingsbox):
+        self.usagebox = UsageView(self.book, theme, settings, self.store_settings)
+        self.usagebox.on_data = self.on_usage
+        self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings, {
+            'include_projects': lambda: self.set_projects('excluded'),
+            'show_projects': lambda: self.set_projects('hidden'),
+            'reset_index': self.usagebox.reset_index,
+            'count_orphans': self.usagebox.count_orphans,
+        })
+        for page in (self.usagebox, self.ttsbox, self.settingsbox):
             self.book.AddPage(page, '')
 
         self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
@@ -91,6 +104,7 @@ class MainFrame(wx.Frame):
         self.timer.Start(TICK_INTERVAL)
         self.on_tick(None)
         self.restore_rect(settings)
+        self.started = True
 
     def is_rect_visible(self, rect):
         # 모니터 구성이 바뀌면 기억된 좌표가 아무 화면에도 안 걸릴 수 있다.
@@ -177,17 +191,62 @@ class MainFrame(wx.Frame):
             return
         event.Skip()
 
+    @staticmethod
+    def resolve_theme(choice):
+        if choice == 'auto':
+            return 'dark' if is_windows_dark() else 'light'
+        return choice if choice in THEMES else 'dark'
+
     def on_settings(self):
+        values = self.settingsbox.get_values()
         style = self.GetWindowStyle()
-        if self.settingsbox.ontop.GetValue():
+        if values['on_top']:
             self.SetWindowStyle(style | wx.STAY_ON_TOP)
         else:
             self.SetWindowStyle(style & ~wx.STAY_ON_TOP)
 
-        theme_name = 'dark' if self.settingsbox.dark.GetValue() else 'light'
+        theme_name = self.resolve_theme(values['theme'])
         if theme_name != self.theme_name:
             self.theme_name = theme_name
             self.apply_theme()
+        theme = THEMES[self.theme_name]
+
+        self.usagebox.set_options(agents=values['agents'], currency=values['currency'],
+                                  rate=self.settingsbox.get_rate(),
+                                  sections=self.settingsbox.get_sections())
+        if values['compact_widget'] and self.widget is None:
+            self.widget = QuotaWidget(self, theme, self.widget_position)
+            if self.last_data:
+                self.widget.update(self.last_data)
+            self.widget.Show()
+        elif not values['compact_widget'] and self.widget is not None:
+            self.close_widget()
+        self.store_settings()
+
+    def on_usage(self, data):
+        '''사용량 페이지가 새로 모을 때마다. 떠 있는 위젯이 같은 값을 받는다.'''
+        self.last_data = data
+        if self.widget is not None:
+            self.widget.update(data)
+
+    def set_projects(self, key):
+        self.usagebox.set_project_list(key, [])
+
+    def close_widget(self):
+        self.widget_position = list(self.widget.GetPosition())
+        self.widget.Destroy()
+        self.widget = None
+
+    def hide_widget(self):
+        self.settingsbox.widget.SetValue(False)
+        self.on_settings()
+
+    def show_window(self):
+        if self.IsIconized():
+            self.Iconize(False)
+        self.Show()
+        self.Raise()
+        self.SetFocus()
 
     def on_size(self, event):
         self.sidemenu.place(TitleBar.HEIGHT)
@@ -197,23 +256,27 @@ class MainFrame(wx.Frame):
         page = self.book.GetCurrentPage()
         if page is not None:
             page.tick()
+        # 알림과 트레이는 사용량 페이지를 안 보고 있어도 새 값을 받아야 한다.
+        if page is not self.usagebox:
+            self.usagebox.tick()
 
-        # Auto hide menu 가 켜져 있으면 창에 마우스가 올라와 있을 때만 타이틀바를
-        # 보여준다. 설정 페이지와 서랍이 열린 동안은 돌아갈 길을 남겨두려고 계속 보인다.
-        visible = (not self.settingsbox.autohide.GetValue() or
-                   page is self.settingsbox or
-                   self.sidemenu.is_open() or
-                   self.GetScreenRect().Contains(wx.GetMousePosition()))
-        self.titlebar.set_visible(visible)
         self.titlebar.set_menu_open(self.sidemenu.is_open())
 
     def store_settings(self):
-        save_settings({
-            'theme': self.theme_name,
-            'on_top': self.settingsbox.ontop.GetValue(),
-            'auto_hide_menu': self.settingsbox.autohide.GetValue(),
+        if not self.started:
+            return
+        settings = self.settingsbox.get_values()
+        settings.update(self.usagebox.get_options())
+        if self.widget is not None:
+            self.widget_position = list(self.widget.GetPosition())
+        settings.update({
             'rect': self.stored_rect,
+            'compact_widget_position': self.widget_position,
         })
+        save_settings(settings)
+        options = self.usagebox.get_options()
+        self.settingsbox.set_project_counts(len(options['excluded_projects']),
+                                            len(options['hidden_projects']))
 
     def on_close(self, event):
         self.timer.Stop()
@@ -226,6 +289,9 @@ class MainFrame(wx.Frame):
         elif self.IsIconized() is False and self.IsMaximized() is False:
             self.stored_rect = list(self.GetRect())
         self.store_settings()
+        if self.widget is not None:
+            self.widget.Destroy()
+            self.widget = None
         event.Skip()
 
 

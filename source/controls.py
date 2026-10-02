@@ -11,6 +11,7 @@ email: peppy0510@hotmail.com
 
 
 import math
+import time
 import wx
 
 from utilities import CARD_HEIGHT
@@ -358,6 +359,93 @@ class SettingCard(CardBase):
         path.AddArc(left + radius, top + radius, radius, math.pi / 2, -math.pi / 2, True)
         path.CloseSubpath()
         return path
+
+
+class LayoutCard(SettingCard):
+    '''끌어서 차례를 바꾸는 토글 카드 (사용량 페이지의 묶음 차례·숨김). 누르기만
+    하면 토글되고, 눌린 채로 몇 픽셀 움직이면 끌기가 된다. 끄는 동안의 자리
+    계산과 애니메이션은 부모가 한다 (`on_drag(card, phase, screen_y)`, phase 는
+    'start'·'move'·'drop').'''
+
+    GRIP = 14
+    # 이만큼 움직여야 끌기로 본다. 손이 떨려 누른 것이 끌기가 되면 토글이 안 먹는다.
+    DRAG_SLOP = 4
+
+    def __init__(self, parent, theme, label, description, on_change=None, on_drag=None):
+        super().__init__(parent, theme, label, description, on_change)
+        self.on_drag = on_drag
+        self.press_y = None
+        self.dragging = False
+        self.Bind(wx.EVT_MOTION, self.on_motion)
+        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_capture_lost)
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+
+    def on_down(self, event):
+        self.press_y = wx.GetMousePosition().y
+        if not self.HasCapture():
+            self.CaptureMouse()
+        super().on_down(event)
+
+    def on_motion(self, event):
+        if self.press_y is None or not event.LeftIsDown():
+            event.Skip()
+            return
+        y = wx.GetMousePosition().y
+        if not self.dragging and abs(y - self.press_y) >= self.DRAG_SLOP:
+            self.dragging = True
+            self.pressed = False
+            self.SetCursor(wx.Cursor(wx.CURSOR_SIZENS))
+            if self.on_drag:
+                self.on_drag(self, 'start', self.press_y)
+        if self.dragging and self.on_drag:
+            self.on_drag(self, 'move', y)
+
+    def on_up(self, event):
+        if self.HasCapture():
+            self.ReleaseMouse()
+        self.press_y = None
+        if self.dragging:
+            self.finish_drag()
+            return
+        super().on_up(event)
+
+    def on_capture_lost(self, event):
+        self.press_y = None
+        if self.dragging:
+            self.finish_drag()
+
+    def finish_drag(self):
+        self.dragging = False
+        self.pressed = False
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.Refresh()
+        if self.on_drag:
+            self.on_drag(self, 'drop', wx.GetMousePosition().y)
+
+    def on_leave(self, event):
+        # 끄는 동안에는 카드가 마우스 밑에서 빠져나가도 눌린 상태를 지우지 않는다.
+        if self.dragging:
+            return
+        super().on_leave(event)
+
+    def draw(self, gc, width, height):
+        super().draw(gc, width, height)
+        if self.dragging:
+            # 들려 있는 카드는 테두리를 강조색으로 둘러 다른 카드와 갈라 보이게 한다.
+            draw_card_rim(gc, self.theme['accent'], 0, 0, width, height)
+
+    def draw_control(self, gc, width, height):
+        theme = self.theme
+        left = super().draw_control(gc, width, height)
+        # 손잡이: 점 두 줄 세 칸. 끌 수 있다는 표시일 뿐 누를 자리가 따로 있지는 않다.
+        grip_left = left - 12 - self.GRIP
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(wx.Colour(theme['dim'])))
+        cy = height / 2
+        for column in (0, 6):
+            for row in (-5, 0, 5):
+                gc.DrawEllipse(grip_left + 4 + column - 1.25, cy + row - 1.25, 2.5, 2.5)
+        return grip_left
 
 
 class ChoiceCard(CardBase):
@@ -728,17 +816,31 @@ class ActionCard(CardBase):
     BUTTON_PADDING = 16
     RADIUS = 5
 
+    # 'warn' 이면 단추를 주황으로 칠한다. 한 번 더 누르면 되돌릴 수 없는 일이 난다는 표시.
+    tone = 'plain'
+
     def __init__(self, parent, theme, label, description, caption, on_click=None):
         super().__init__(parent, theme, label, description)
-        self.caption = caption
         self.action = on_click
-        dc = wx.MemoryDC(wx.Bitmap(1, 1))
-        dc.SetFont(get_font(9))
-        self.button = dc.GetTextExtent(caption)[0] + self.BUTTON_PADDING * 2
+        self.caption = None
+        self.set_caption(caption)
 
     def set_caption(self, caption):
         if caption != self.caption:
             self.caption = caption
+            dc = wx.MemoryDC(wx.Bitmap(1, 1))
+            dc.SetFont(get_font(9))
+            self.button = dc.GetTextExtent(caption)[0] + self.BUTTON_PADDING * 2
+            self.Refresh()
+
+    def set_description(self, description):
+        if description != self.description:
+            self.description = description
+            self.Refresh()
+
+    def set_tone(self, tone):
+        if tone != self.tone:
+            self.tone = tone
             self.Refresh()
 
     def activate(self):
@@ -750,7 +852,7 @@ class ActionCard(CardBase):
         left = width - self.PADDING - self.button
         top = round((height - self.BUTTON_HEIGHT) / 2)
 
-        fill = theme['accent']
+        fill = theme['warn'] if self.tone == 'warn' else theme['accent']
         if self.pressed:
             fill = shade(fill, 0.85)
         elif self.hovered:
@@ -774,15 +876,17 @@ class ScrollBar(Canvas):
     INSET = 3
     RADIUS = 2
     HOLD = 700
-    STEP = 40
-    FADE = 0.12
+    # 사라지는 데 걸리는 시간. 프레임 수가 아니라 시각으로 잰다 — 타이머가 밀려도
+    # 같은 빠르기로 지고, 16ms 마다 다시 칠해 계단이 안 보인다.
+    FADE_MS = 400
+    STEP = 16
 
     def __init__(self, parent, theme):
         super().__init__(parent, theme)
         self.fade = 0.0
         self.span = 0.0
         self.ratio = 1.0
-        self.holding = 0
+        self.shown_at = 0.0
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_fade)
 
@@ -794,17 +898,20 @@ class ScrollBar(Canvas):
 
     def show(self):
         self.fade = 1.0
-        self.holding = self.HOLD
+        self.shown_at = time.monotonic()
         if not self.timer.IsRunning():
             self.timer.Start(self.STEP)
         self.Refresh()
 
     def on_fade(self, event):
-        if self.holding > 0:
-            self.holding -= self.STEP
+        elapsed = (time.monotonic() - self.shown_at) * 1000 - self.HOLD
+        if elapsed <= 0:
             return
-        self.fade = max(0.0, self.fade - self.FADE)
-        if self.fade <= 0:
+        progress = min(1.0, elapsed / self.FADE_MS)
+        # 처음엔 빠르게 옅어지다 끝에서 늦춘다 (ease-out). 직선으로 빼면 끝이 툭 끊긴다.
+        self.fade = (1.0 - progress) ** 2
+        if progress >= 1.0:
+            self.fade = 0.0
             self.timer.Stop()
         self.Refresh()
 
