@@ -25,6 +25,9 @@
        검증: 파랑↔주황 색약 ΔE 27.7 / 정상 시각 29.6 (dataviz validate_palette). */
     --series1: var(--accent);
     --series2: #c98430;
+    /* 진행 막대는 모두 이 굵기·둥글기 하나로 (한도·세션 문맥·모델·주별·내역·색인 띠). */
+    --bar-height: 6px;
+    --bar-radius: 3px;
     --sunken: color-mix(in srgb, var(--face) 70%, var(--grid));
     --soft: color-mix(in srgb, var(--accent) 45%, var(--grid));
 }
@@ -34,7 +37,9 @@
 body {
     margin: 0;
     /* 위는 타이틀바 바로 아래라 옆보다 좁게 둔다. */
-    padding: 8px 16px 20px;
+    /* 옆 여백 6px + 막대 자리 10px = 16px. 막대 자리를 양쪽에 똑같이 둬서
+       (scrollbar-gutter) 카드가 오른쪽 막대 때문에 왼쪽으로 쏠리지 않게 한다. */
+    padding: 8px 6px 20px;
     background: var(--bg);
     color: var(--text);
     font: 13px "Segoe UI", sans-serif;
@@ -135,8 +140,8 @@ section { margin-bottom: 14px; }
     background: var(--face);
     font-size: 12px;
 }
-.banner .bar { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--grid); overflow: hidden; }
-.banner .bar > i { display: block; height: 100%; background: var(--accent); }
+.banner .bar { margin-top: 6px; height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
+.banner .bar > i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--accent); }
 
 /* 머리판 ------------------------------------------------------------- */
 .header { display: flex; justify-content: space-between; gap: 12px; }
@@ -162,12 +167,12 @@ section { margin-bottom: 14px; }
 .limit .bar {
     position: relative;
     margin-top: 5px;
-    height: 6px;
-    border-radius: 3px;
+    height: var(--bar-height);
+    border-radius: var(--bar-radius);
     background: var(--grid);
     overflow: hidden;
 }
-.limit .bar > i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; }
+.limit .bar > i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--bar-radius); }
 .limit .bar > .time { background: color-mix(in srgb, var(--dim) 45%, var(--grid)); }
 
 /* 막대 그림 (추세·산출·시간대 공용). 0 에서 자라고, 막대 사이 2px 틈,
@@ -204,8 +209,8 @@ section { margin-bottom: 14px; }
 .breakdown h3:first-child { margin-top: 0; }
 .breakdown h3 .note { font-weight: 400; }
 .meter { display: grid; grid-template-columns: 92px 1fr auto; gap: 8px; align-items: center; margin-top: 4px; font-size: 11px; }
-.meter .track { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
-.meter .track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.meter .track { height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
+.meter .track i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--accent); }
 .meter .val { color: var(--dim); text-align: right; white-space: nowrap; }
 
 /* 세션 --------------------------------------------------------------- */
@@ -216,8 +221,8 @@ section { margin-bottom: 14px; }
 .session .ago { margin-left: auto; white-space: nowrap; }
 .session .meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; }
 .session .ctx { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
-.session .ctx .track { flex: 1; height: 4px; border-radius: 2px; background: var(--grid); overflow: hidden; }
-.session .ctx .track i { display: block; height: 100%; background: var(--accent); }
+.session .ctx .track { flex: 1; height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
+.session .ctx .track i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--accent); }
 .session .ctx .track i.near { background: var(--warn); }
 .session .ctx .track i.full { background: var(--close); }
 .session .actions { display: flex; gap: 10px; margin-top: 4px; }
@@ -264,8 +269,8 @@ section { margin-bottom: 14px; }
 .calendar > i { display: block; aspect-ratio: 1; border-radius: 1.5px; }
 .calendar > i.blank { visibility: hidden; }
 .week-row { display: grid; grid-template-columns: 70px 1fr 90px; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; }
-.week-row .track { height: 8px; border-radius: 3px; background: var(--grid); overflow: hidden; }
-.week-row .track i { display: block; height: 100%; background: var(--soft); }
+.week-row .track { height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
+.week-row .track i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--soft); }
 .week-row.current .track i { background: var(--accent); }
 .tod { width: 100%; border-collapse: collapse; font-size: 11px; }
 .tod th { font-weight: 400; color: var(--dim); text-align: right; padding: 3px 0; font-size: 10px; }
@@ -290,8 +295,8 @@ section { margin-bottom: 14px; }
 /* 모델 --------------------------------------------------------------- */
 .model { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-top: 8px; font-size: 12px; }
 .model:first-child { margin-top: 0; }
-.model .track { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--grid); overflow: hidden; }
-.model .track i { display: block; height: 100%; background: var(--accent); }
+.model .track { grid-column: 1 / -1; height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
+.model .track i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--accent); }
 
 /* 새로고침 ----------------------------------------------------------- */
 .action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -319,6 +324,7 @@ button.primary[disabled] { filter: none; opacity: 0.5; cursor: default; }
 }
 html { --thumb: transparent; transition: --thumb 0.4s ease-out; }
 html.scrolling { --thumb: var(--rim); transition: none; }
+html { scrollbar-gutter: stable both-edges; }
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
@@ -617,7 +623,7 @@ var SKELETON = {
     },
     sessions: function () {
         return '<div class="sk-stack">' + '<div class="sk-row">' + sk('45%') + sk('15%') + '</div>' +
-            sk('70%') + sk('100%', 4) + sk('40%') + '</div>' +
+            sk('70%') + sk('100%', 6) + sk('40%') + '</div>' +
             '<div style="height:48px"></div>' + sk('35%');
     },
     activity: function () {
@@ -627,7 +633,7 @@ var SKELETON = {
     },
     models: function () {
         var row = '<div class="sk-stack">' + '<div class="sk-row">' + sk('40%') + sk('28%') + '</div>' +
-            sk('100%', 5) + '</div>';
+            sk('100%', 6) + '</div>';
         return [row, row, row, row, row].join('<div style="height:12px"></div>');
     }
 };
@@ -1206,10 +1212,14 @@ function layoutSections() {
     });
 }
 
-var resizeTimer = null;
+/* 창 크기를 바꾸는 동안에는 단 수가 바뀔 때만 다시 편다. 폭이 조금씩 변할 때마다 끊는
+   자리를 다시 따지면 카드가 단 사이를 오가며 꿈틀거린다. 단 수가 바뀌면 기다리지 않고
+   바로 (늦게 바꾸면 옛 배치가 한동안 보인다). */
 window.addEventListener('resize', function () {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(layoutSections, 80);
+    var host = el('sections');
+    var current = host.classList.contains('masonry')
+        ? host.querySelectorAll(':scope > .masonry-column').length : 1;
+    if (getColumnCount() !== current) { layoutSections(); }
 });
 
 function drawUpdated() {
