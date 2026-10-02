@@ -70,7 +70,9 @@ section { margin-bottom: 14px; }
         margin-bottom: 14px;
     }
     html.wide #sections > section { margin-bottom: 0; min-width: 0; }
-    html.wide #sections > section[data-id="header"] { grid-column: 1 / -1; }
+    /* 머리판과 Refresh 도 격자의 한 칸이다. 제목이 없는 둘은 제목 자리(22px + 8px)만큼
+       카드를 내려 옆 카드의 윗선과 맞춘다. */
+    html.wide #sections > section[data-id="refresh"] { padding-top: 30px; }
 }
 @media (min-width: 1240px) {
     html.wide #sections { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -158,7 +160,7 @@ section { margin-bottom: 14px; }
 .plan { padding: 1px 7px; border: 1px solid var(--rim); border-radius: 9px; font-size: 10px; font-weight: 600; }
 .plan .provider { margin-right: 4px; }
 /* 왼쪽에 지금 쓰는 플랜, 오른쪽에 기간 단추 (WhereMyTokens 머리줄과 같은 자리). */
-.header-period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; margin: 0 0 6px; }
+.header-period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; min-height: 22px; margin: 0 0 8px; }
 .header-period .seg { margin-left: auto; }
 
 /* 한도 --------------------------------------------------------------- */
@@ -406,14 +408,16 @@ html.scrolling { --thumb: var(--rim); transition: none; }
     <div class="card" id="models" data-skeleton="models"></div>
 </section>
 
-</div>
-
-<div class="card action">
-    <div>
-        <div>Refresh</div>
-        <div class="note" id="updated">Re-read the agent records</div>
+<section data-id="refresh">
+    <div class="card action">
+        <div>
+            <div>Refresh</div>
+            <div class="note" id="updated">Re-read the agent records</div>
+        </div>
+        <button class="primary" id="reload">Reload</button>
     </div>
-    <button class="primary" id="reload">Reload</button>
+</section>
+
 </div>
 
 <script>
@@ -1129,6 +1133,8 @@ function arrangeSections(sections, wide) {
         node.hidden = !!item.hidden;
         host.appendChild(node);
     });
+    // Refresh 는 설정의 차례에 없다. 늘 맨 끝.
+    if (nodes.refresh) { host.appendChild(nodes.refresh); }
 }
 
 function drawUpdated() {
