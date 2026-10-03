@@ -43,8 +43,9 @@ AGENTS = ('claude', 'codex', 'antigravity')
 USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 # 남은 한도는 기록에 없고 이 곳에서만 나온다. 로그인한 자격으로 물어야 하는데
-# 이 PC 는 Windows 쪽 토큰이 폐기돼 있고 WSL 쪽이 살아 있다. 둘 다 대 보고 먼저
-# 대답하는 쪽을 쓴다. ★토큰은 쓰고 버린다 — 찍지도, 남기지도 않는다.
+# 살아 있는 건 Windows 쪽 토큰이다(수명 8시간, Windows 의 claude 가 돌 때만 갱신된다).
+# WSL 쪽 파일은 데스크톱 앱이 인증을 넣어 주는 탓에 비어 있는 일이 많다. 그래도
+# 둘 다 대 보고 먼저 대답하는 쪽을 쓴다. ★토큰은 쓰고 버린다 — 찍지도, 남기지도 않는다.
 CREDENTIALS = (
     os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json'),
     r'\\wsl.localhost\ubuntu-24.04\root\.claude\.credentials.json',
@@ -197,7 +198,7 @@ def get_reset_seconds(stamp):
 def get_limits():
     '''클로드 클라이언트가 보여 주는 5시간·주간 한도. 못 물으면 None 이다 —
     토큰이 만료되면 401 이 오는데 우리는 갱신할 방법이 없다(그건 로그인 흐름이다).
-    WSL 에서 claude 를 쓰면 그쪽 토큰이 갱신되어 다시 열린다.
+    Windows 에서 claude 를 한 번 돌리면(Sign in 단추가 하는 일) 토큰이 갱신되어 다시 열린다.
 
     ★토큰을 우리가 갱신하지는 않는다. refresh token 은 쓰면 바뀌어서 Claude Code 가
     쥔 것이 무효가 되고, 그쪽 로그인이 풀린다.'''
