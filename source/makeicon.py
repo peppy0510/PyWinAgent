@@ -7,8 +7,8 @@ email: peppy0510@hotmail.com
 
 assets/icon 의 icon.ico 와 icon.png 를 만든다.
 
-마크는 남색 타일 위의 구슬과 그 안의 흰 반짝이다. 반짝이는 흔히 AI 도우미를 가리키는
-기호이고, 구슬의 파랑→보라→주황은 앱이 다루는 Claude(파랑)·Codex(주황)의 계열색을 잇는다.
+마크는 파랑→보라→주황 타일을 꽉 채운 남색 반짝이다. 반짝이는 흔히 AI 도우미를 가리키는
+기호이고, 타일 색은 앱이 다루는 Claude(파랑)·Codex(주황)의 계열색을 잇는다.
 
 반짝이는 초타원(|x|^(2/p) + |y|^(2/p) = 1)의 네 끝이다. p 가 클수록 날이 가늘다.
 작은 치수는 날을 굵게 그린다 — 가는 날을 그대로 16px 로 줄이면 흰 점 하나로 뭉갠다.
@@ -22,12 +22,10 @@ from PIL import Image
 from PIL import ImageDraw
 
 
-TILE = (24, 30, 64, 255)
-SPARK = (255, 255, 255, 255)
-ORB_STOPS = ((70, 150, 255), (120, 90, 240), (250, 150, 80))
+SPARK = (24, 30, 64, 255)
+TILE_STOPS = ((70, 150, 255), (120, 90, 240), (250, 150, 80))
 
-ORB = (0.16, 0.84)
-SPARK_RADIUS = 0.22
+SPARK_RADIUS = 0.4
 SPARK_POWER = 3.4
 # 이보다 작으면 반짝이 날을 굵게 그린다.
 SIMPLIFY_BELOW = 32
@@ -48,12 +46,12 @@ def blend(stops, t):
 
 
 def draw_gradient(canvas):
-    '''왼쪽 위에서 오른쪽 아래로 흐르는 구슬 색. 가로를 조금 더 탄다.'''
+    '''왼쪽 위에서 오른쪽 아래로 흐르는 타일 색. 가로를 조금 더 탄다.'''
     image = Image.new('RGBA', (canvas, canvas))
     pixels = image.load()
     for y in range(canvas):
         for x in range(canvas):
-            pixels[x, y] = blend(ORB_STOPS, (x * 0.55 + y * 0.45) / canvas)
+            pixels[x, y] = blend(TILE_STOPS, (x * 0.55 + y * 0.45) / canvas)
     return image
 
 
@@ -71,14 +69,11 @@ def get_sparkle(canvas, radius, power):
 def draw_mark(size):
     canvas = size * SCALE
     image = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
 
     inset = canvas * 0.03
-    draw.rounded_rectangle((inset, inset, canvas - inset - 1, canvas - inset - 1),
-                           radius=canvas * 0.23, fill=TILE)
-
     mask = Image.new('L', (canvas, canvas), 0)
-    ImageDraw.Draw(mask).ellipse([canvas * edge for edge in (ORB[0], ORB[0], ORB[1], ORB[1])], fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle((inset, inset, canvas - inset - 1, canvas - inset - 1),
+                                           radius=canvas * 0.23, fill=255)
     image.paste(draw_gradient(canvas), (0, 0), mask)
 
     power = SMALL_SPARK_POWER if size < SIMPLIFY_BELOW else SPARK_POWER
