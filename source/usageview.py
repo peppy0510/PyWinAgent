@@ -18,6 +18,7 @@ Edge(Chromium) 백엔드를 쓴다. honeypot 의 `wxmain.py` 는 IE 에뮬레이
 '''
 
 
+import base64
 import json
 import os
 import threading
@@ -29,6 +30,7 @@ import wx.html2
 import claudelogin
 import dashboard
 import usageindex
+import utilities
 
 # 로그인 창을 띄운 뒤 새 토큰이 생겼는지 이 간격으로, 이만큼 동안 살핀다.
 LOGIN_POLL_MS = 5000
@@ -36,6 +38,7 @@ LOGIN_POLL_LIMIT = 10 * 60
 
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'usage.htm')
+BRAND_ICONS = ('claude', 'codex-dark', 'codex-light')
 
 # 페이지가 CSS 변수로 받는 색. 테마가 바뀌면 이만큼만 다시 넘긴다.
 TINTS = ('bg', 'face', 'rim', 'text', 'dim', 'accent', 'mint', 'grid', 'warn', 'close')
@@ -51,6 +54,18 @@ def get_backend():
     if edge and wx.html2.WebView.IsBackendAvailable(edge):
         return edge
     return wx.html2.WebViewBackendDefault
+
+
+def get_brand_sources():
+    '''묶음 머리에 쓰는 도구 아이콘. 각 앱 설치 패키지의 Square44x44Logo(64px) 를 옮겨 둔 것.'''
+    sources = {}
+    for name in BRAND_ICONS:
+        try:
+            with open(utilities.get_asset_path('brand', name + '.png'), 'rb') as file:
+                sources[name] = 'data:image/png;base64,' + base64.b64encode(file.read()).decode('ascii')
+        except OSError:
+            pass
+    return sources
 
 
 class UsageView(wx.Panel):
@@ -94,7 +109,10 @@ class UsageView(wx.Panel):
     def load_page(self):
         try:
             with open(PAGE, encoding='utf-8') as file:
-                self.view.SetPage(file.read(), '')
+                page = file.read()
+            # SetPage 로 띄운 페이지는 기준 경로가 없어 상대 경로 그림을 못 읽는다. 바로 싣는다.
+            page = page.replace('var BRAND_SRC = {};', 'var BRAND_SRC = %s;' % json.dumps(get_brand_sources()), 1)
+            self.view.SetPage(page, '')
         except OSError:
             self.view.SetPage('<body>usage.htm is missing</body>', '')
 

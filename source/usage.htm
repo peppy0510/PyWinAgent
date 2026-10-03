@@ -156,6 +156,19 @@ section { margin-bottom: 14px; }
 
 /* 한도 --------------------------------------------------------------- */
 .limit + .limit { margin-top: 14px; }
+.limit-group + .limit-group { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--rim); }
+.limit-brand { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.limit-brand .brand-icon { width: 18px; height: 18px; flex: none; }
+.limit-brand.claude .brand-icon { border-radius: 4px; }
+.limit-brand .brand-icon.on-dark { display: none; }
+:root.dark .limit-brand .brand-icon.on-dark { display: block; }
+:root.dark .limit-brand .brand-icon.on-light { display: none; }
+.limit-brand .brand-name { font-size: 12px; font-weight: 700; letter-spacing: 0.3px; }
+.limit-brand .brand-plan { font-size: 11px; color: var(--dim); }
+/* 다 쓴 칸. 언제 다시 쓸 수 있는지가 이 줄에서 가장 궁금한 값이라 크게 둔다. */
+.limit-lift { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; }
+.limit-lift .time-left { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.limit-lift .lift-caption { font-size: 11px; color: var(--dim); }
 /* 서버에 못 물어 지난 값을 보일 때. 까닭 한 줄을 위에 두고 막대는 옅게. */
 .limit-note { margin-bottom: 12px; padding: 6px 8px; border-radius: 4px; background: var(--sunken); font-size: 11px; color: var(--dim); }
 .limit.stale { opacity: 0.55; }
@@ -491,6 +504,7 @@ function setTheme(theme) {
         root.style.setProperty('--' + key, theme[key]);
     });
     root.style.colorScheme = theme.dark ? 'dark' : 'light';
+    root.classList.toggle('dark', !!theme.dark);
     root.style.setProperty('--series2', theme.dark ? '#c98430' : theme.warn);
     if (latest) { render(latest); }
 }
@@ -746,20 +760,75 @@ function drawLimits(limits, status) {
         host.innerHTML = '<div class="empty">nothing running against a limit</div>';
         return;
     }
-    host.innerHTML = limits.map(function (limit) {
-        var tint = limit.severity === 'critical' ? 'var(--close)'
-            : limit.severity === 'warning' ? 'var(--warn)' : 'var(--accent)';
-        return '<div class="limit' + (limit.stale ? ' stale' : '') + '">' +
-            '<div class="head"><span class="name">' + esc(limit.name) + '</span>' +
-            '<span class="when">' + esc(limit.when) + (limit.stale ? ' · cached' : '') + '</span>' +
-            '<span class="elapsed">' + (limit.elapsed === null ? '' : limit.elapsed + '% elapsed') +
-            '</span><span class="pct num" style="color:' + tint + '">' + limit.percent + '%</span></div>' +
-            '<div class="bar">' +
-            (limit.elapsed === null ? '' : '<i class="time" style="width:' + limit.elapsed + '%"></i>') +
-            '<i style="width:' + Math.min(100, limit.percent) + '%;background:' + tint + '"></i>' +
-            '</div></div>';
+    // 도구마다 묶는다. 묶음 머리에 아이콘·이름·플랜을 두므로 줄 이름의 "Codex · " 는 뗀다.
+    var plans = {};
+    ((latest && latest.plans) || []).forEach(function (plan) { plans[plan.provider] = plan.name; });
+    var groups = [];
+    limits.forEach(function (limit) {
+        var provider = limit.provider || 'claude';
+        var group = groups[groups.length - 1];
+        if (!group || group.provider !== provider) {
+            group = {provider: provider, limits: []};
+            groups.push(group);
+        }
+        group.limits.push(limit);
+    });
+    host.innerHTML = groups.map(function (group) {
+        return '<div class="limit-group">' +
+            '<div class="limit-brand ' + group.provider + '">' + brandIcon(group.provider) +
+            '<span class="brand-name">' + esc(AGENT_NAMES[group.provider] || group.provider) + '</span>' +
+            '<span class="brand-plan">' + esc(plans[group.provider] || '') + '</span></div>' +
+            group.limits.map(drawLimit).join('') + '</div>';
     }).join('');
     host.insertAdjacentHTML('afterbegin', limitNote(status));
+}
+
+/* 묶음 머리의 아이콘. 각 앱 패키지의 아이콘을 앱이 페이지를 띄울 때 바로 싣는다
+   (usageview.get_brand_sources). Codex 는 바탕에 따라 흰·검정 두 벌을 갈아 쓴다. */
+var BRAND_SRC = {};
+
+function brandIcon(provider) {
+    function img(key, extra) {
+        return BRAND_SRC[key] ? '<img class="brand-icon' + (extra || '') + '" src="' + BRAND_SRC[key] + '" alt="">' : '';
+    }
+    if (provider === 'codex') { return img('codex-dark', ' on-dark') + img('codex-light', ' on-light'); }
+    return img(provider);
+}
+
+/* 남은 시간을 짧게. 한도가 풀리기까지의 큰 글자에 쓴다. */
+function countdown(until) {
+    var seconds = Math.max(0, Math.round(until - Date.now() / 1000));
+    var days = Math.floor(seconds / 86400);
+    var hours = Math.floor(seconds % 86400 / 3600);
+    var minutes = Math.floor(seconds % 3600 / 60);
+    if (days) { return days + 'd ' + hours + 'h'; }
+    if (hours) { return hours + 'h ' + minutes + 'm'; }
+    return Math.max(1, minutes) + 'm';
+}
+
+function drawCountdowns() {
+    document.querySelectorAll('.limit-lift .time-left').forEach(function (node) {
+        node.textContent = countdown(+node.getAttribute('data-until'));
+    });
+}
+
+function drawLimit(limit) {
+    var tint = limit.severity === 'critical' || limit.reached ? 'var(--close)'
+        : limit.severity === 'warning' ? 'var(--warn)' : 'var(--accent)';
+    var name = limit.name.replace(/^Codex · /, '');
+    var lift = !limit.reached ? '' :
+        '<div class="limit-lift"><span class="time-left num" style="color:' + tint +
+        '" data-until="' + limit.until + '">' + countdown(limit.until) + '</span>' +
+        '<span class="lift-caption">until this limit lifts</span></div>';
+    return '<div class="limit' + (limit.stale ? ' stale' : '') + (limit.reached ? ' reached' : '') + '">' +
+        '<div class="head"><span class="name">' + esc(name) + '</span>' +
+        '<span class="when">' + esc(limit.when) + (limit.stale ? ' · cached' : '') + '</span>' +
+        '<span class="elapsed">' + (limit.elapsed === null ? '' : limit.elapsed + '% elapsed') +
+        '</span><span class="pct num" style="color:' + tint + '">' + limit.percent + '%</span></div>' +
+        '<div class="bar">' +
+        (limit.elapsed === null ? '' : '<i class="time" style="width:' + limit.elapsed + '%"></i>') +
+        '<i style="width:' + Math.min(100, limit.percent) + '%;background:' + tint + '"></i>' +
+        '</div>' + lift + '</div>';
 }
 
 /* 코드 산출 ---------------------------------------------------------- */
@@ -1284,7 +1353,7 @@ function render(data) {
     drawUpdated();
 }
 
-setInterval(drawUpdated, 15000);
+setInterval(function () { drawUpdated(); drawCountdowns(); }, 15000);
 
 el('reload').addEventListener('click', function () {
     var button = el('reload');

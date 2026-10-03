@@ -147,7 +147,7 @@ def get_limits(index, options, fresh=False):
         if claude is None:
             failed = True
         else:
-            limits.extend(claude)
+            limits.extend(dict(limit, provider='claude') for limit in claude)
     if 'codex' in options['agents']:
         stored = index.get_meta('codex_limits') or {}
         rates = stored.get('limits') or {}
@@ -161,13 +161,19 @@ def get_limits(index, options, fresh=False):
             # 0% 로 두되 줄은 남긴다 (WhereMyTokens 와 같이 늘 보인다).
             if remains <= 0:
                 limits.append({'name': name, 'percent': 0, 'severity': 'normal',
-                               'remains': None, 'window': minutes * 60,
+                               'remains': None, 'window': minutes * 60, 'provider': 'codex',
                                'idle': 'starts with the next request'})
                 continue
             limits.append({'name': name, 'percent': int(round(window.get('used_percent', 0))),
-                           'severity': 'normal', 'remains': remains, 'window': minutes * 60})
+                           'severity': 'normal', 'remains': remains, 'window': minutes * 60,
+                           'provider': 'codex'})
+    now = time.time()
     for limit in limits:
         limit['when'] = limit.pop('idle', None) or usagedata.format_remaining(limit['remains'])
+        # 다 쓴 칸은 풀리는 시각을 크게 보인다. 남은 시간은 페이지가 이 시각에서 센다 —
+        # 1 분마다 새로 모으기 전에도 줄어들어야 하므로 남은 초가 아니라 절대 시각을 넘긴다.
+        limit['reached'] = limit['percent'] >= 100 and limit['remains'] is not None
+        limit['until'] = now + limit['remains'] if limit['reached'] else None
         window = limit.get('window')
         limit['elapsed'] = None if not window or limit['remains'] is None else \
             max(0, min(100, int(round((1 - limit['remains'] / float(window)) * 100))))
