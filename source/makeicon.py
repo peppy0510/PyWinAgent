@@ -7,29 +7,31 @@ email: peppy0510@hotmail.com
 
 assets/icon 의 icon.ico 와 icon.png 를 만든다.
 
-마크는 둥근 사각형 안의 세로 막대다. 소리의 파형으로도, 사용량 그래프로도
-읽혀 이 앱이 다루는 두 가지를 한 그림이 덮는다.
+마크는 남색 타일 위의 구슬과 그 안의 흰 반짝이다. 반짝이는 흔히 AI 도우미를 가리키는
+기호이고, 구슬의 파랑→보라→주황은 앱이 다루는 Claude(파랑)·Codex(주황)의 계열색을 잇는다.
 
-PyWinClock 의 makeicon 은 문자판을 그대로 쓰려고 wx 로 그리지만, 여기는 다시
-쓸 그림이 없고 모서리 바깥을 비워야 해서 알파를 곧바로 다루는 쪽을 골랐다.
-작은 치수는 줄여 그린다 — 256 을 깎아 내리면 막대가 회색 죽으로 뭉갠다.
+반짝이는 초타원(|x|^(2/p) + |y|^(2/p) = 1)의 네 끝이다. p 가 클수록 날이 가늘다.
+작은 치수는 날을 굵게 그린다 — 가는 날을 그대로 16px 로 줄이면 흰 점 하나로 뭉갠다.
 '''
 
 
+import math
 import os
 
 from PIL import Image
 from PIL import ImageDraw
 
 
-BADGE = (47, 127, 230, 255)
-BAR = (255, 255, 255, 255)
+TILE = (24, 30, 64, 255)
+SPARK = (255, 255, 255, 255)
+ORB_STOPS = ((70, 150, 255), (120, 90, 240), (250, 150, 80))
 
-# 이보다 작으면 막대를 셋으로 줄이고 굵게 그린다.
+ORB = (0.16, 0.84)
+SPARK_RADIUS = 0.22
+SPARK_POWER = 3.4
+# 이보다 작으면 반짝이 날을 굵게 그린다.
 SIMPLIFY_BELOW = 32
-
-TALL = (0.42, 0.68, 1.00, 0.62, 0.34)
-SHORT = (0.55, 1.00, 0.44)
+SMALL_SPARK_POWER = 2.6
 
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
@@ -37,33 +39,50 @@ SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 SCALE = 8
 
 
+def blend(stops, t):
+    t = max(0.0, min(1.0, t))
+    index = min(len(stops) - 2, int(t * (len(stops) - 1)))
+    local = t * (len(stops) - 1) - index
+    a, b = stops[index], stops[index + 1]
+    return tuple(int(a[i] + (b[i] - a[i]) * local) for i in range(3)) + (255,)
+
+
+def draw_gradient(canvas):
+    '''왼쪽 위에서 오른쪽 아래로 흐르는 구슬 색. 가로를 조금 더 탄다.'''
+    image = Image.new('RGBA', (canvas, canvas))
+    pixels = image.load()
+    for y in range(canvas):
+        for x in range(canvas):
+            pixels[x, y] = blend(ORB_STOPS, (x * 0.55 + y * 0.45) / canvas)
+    return image
+
+
+def get_sparkle(canvas, radius, power):
+    middle = canvas / 2
+    points = []
+    for step in range(400):
+        angle = 2 * math.pi * step / 400
+        cos, sin = math.cos(angle), math.sin(angle)
+        points.append((middle + radius * math.copysign(abs(cos) ** power, cos),
+                       middle + radius * math.copysign(abs(sin) ** power, sin)))
+    return points
+
+
 def draw_mark(size):
     canvas = size * SCALE
     image = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    inset = canvas * 0.02
+    inset = canvas * 0.03
     draw.rounded_rectangle((inset, inset, canvas - inset - 1, canvas - inset - 1),
-                           radius=canvas * 0.22, fill=BADGE)
+                           radius=canvas * 0.23, fill=TILE)
 
-    if size < SIMPLIFY_BELOW:
-        heights, width, gap = SHORT, 0.17, 0.105
-    else:
-        heights, width, gap = TALL, 0.10, 0.065
+    mask = Image.new('L', (canvas, canvas), 0)
+    ImageDraw.Draw(mask).ellipse([canvas * edge for edge in (ORB[0], ORB[0], ORB[1], ORB[1])], fill=255)
+    image.paste(draw_gradient(canvas), (0, 0), mask)
 
-    bar = canvas * width
-    step = bar + canvas * gap
-    span = step * len(heights) - canvas * gap
-    left = (canvas - span) / 2
-    middle = canvas / 2
-    # 가장 긴 막대가 배지 안에서 숨 쉴 만큼만 자란다.
-    reach = canvas * 0.29
-
-    for index, height in enumerate(heights):
-        x = left + step * index
-        half = reach * height
-        draw.rounded_rectangle((x, middle - half, x + bar - 1, middle + half),
-                               radius=bar / 2, fill=BAR)
+    power = SMALL_SPARK_POWER if size < SIMPLIFY_BELOW else SPARK_POWER
+    ImageDraw.Draw(image).polygon(get_sparkle(canvas, canvas * SPARK_RADIUS, power), fill=SPARK)
 
     return image.resize((size, size), Image.LANCZOS)
 
