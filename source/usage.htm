@@ -1278,6 +1278,9 @@ function render(data) {
     parts.forEach(function (part) {
         try { part[1](data); } catch (error) { console.error(part[0], error); }
     });
+    // 단 나누기는 새 내용의 키로 다시 한다. 위의 arrangeSections 는 옛 내용의 키로 쟀으므로,
+    // 키가 바뀐 카드는 다음 갱신 때에야 제 단으로 옮겨 가며 번쩍였다.
+    layoutSections();
     drawUpdated();
 }
 

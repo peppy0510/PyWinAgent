@@ -31,6 +31,10 @@ from datetime import timezone
 
 AGENTS = ('claude', 'codex', 'antigravity')
 
+# 이보다 적게 읽을 때는 진행률을 알리지 않는다. 1 분마다 붙는 몇 KB 에도 띠를 띄우면
+# 페이지 맨 위에 잠깐 끼었다 빠지면서 화면 전체가 번쩍이며 밀렸다 돌아온다.
+PROGRESS_MIN_BYTES = 8 * 1024 * 1024
+
 HOME = os.path.expanduser('~')
 WSL_HOME = r'\\wsl.localhost\ubuntu-24.04\root'
 
@@ -472,6 +476,8 @@ class UsageIndex:
 
         total = sum(stat.st_size - (previous[2] if previous and previous[2] <= stat.st_size else 0)
                     for provider, path, stat, previous in work) or 1
+        if total < PROGRESS_MIN_BYTES:
+            on_progress = None
         done = 0
         for provider, path, stat, previous in work:
             offset = previous[2] if previous else 0
