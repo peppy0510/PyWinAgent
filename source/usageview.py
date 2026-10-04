@@ -35,6 +35,15 @@ import utilities
 # 로그인 창을 띄운 뒤 새 토큰이 생겼는지 이 간격으로, 이만큼 동안 살핀다.
 LOGIN_POLL_MS = 5000
 LOGIN_POLL_LIMIT = 10 * 60
+# 토큰이 만료되기 직전(claudelogin.REFRESH_SKEW)이면 Sign in 단추와 같은 조용한 갱신을 스스로 돌린다.
+# 실패하면(refresh token 까지 만료 등) 이만큼 기다렸다 다시 해 본다 — 매 tick 마다 claude 를 띄우지 않게.
+AUTO_REFRESH_RETRY = 30 * 60
+# 만료 시각은 파일에서 읽는다. 이보다 자주 읽지 않는다.
+EXPIRY_CHECK = 30
+# 폭주 막이. 정상이면 하루 3 번(8 시간마다)이다. 24 시간 안에 이만큼 넘게는 스스로 돌리지 않는다.
+# 시도 시각은 색인 meta 에 남겨 앱을 다시 띄워도 이어 센다. 넘으면 Sign in 단추만 남는다.
+AUTO_REFRESH_DAILY_CAP = 6
+AUTO_REFRESH_KEY = 'claude_auto_refresh'
 
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'usage.htm')
@@ -77,6 +86,9 @@ class UsageView(wx.Panel):
         self.loading = False
         self.pending = False
         self.ready = False
+        self.refreshing = False
+        self.last_refresh_try = 0
+        self.last_expiry_check = 0
         self.last_run = 0
         self.last_git = 0
         self.on_options = on_options
@@ -165,6 +177,7 @@ class UsageView(wx.Panel):
     def sign_in(self):
         '''Claude 토큰 갱신. 조용한 갱신이 길면 수십 초라 실에서 돌린다.'''
         self.call('setLoginState', 'working')
+        self.refreshing = True
 
         def run():
             result = claudelogin.sign_in()
@@ -172,6 +185,7 @@ class UsageView(wx.Panel):
         threading.Thread(target=run, daemon=True).start()
 
     def after_sign_in(self, result):
+        self.refreshing = False
         self.call('setLoginState', result)
         if result == 'refreshed':
             self.reload(force=True)
@@ -273,3 +287,46 @@ class UsageView(wx.Panel):
         # 안 보여도 다시 읽는다. 트레이·위젯·알림이 이 값을 쓴다.
         if self.ready and time.time() - self.last_run > AUTO_REFRESH:
             self.reload()
+        self.keep_signed_in()
+
+    def keep_signed_in(self):
+        '''Claude 토큰(수명 8 시간)이 곧 만료되면 조용히 갱신한다. 터미널 로그인은 띄우지 않는다 —
+        그건 사람이 Sign in 을 눌렀을 때만. 갱신 한 번마다 아주 작은 요청 하나가 사용량에 잡힌다.'''
+        now = time.time()
+        if not self.ready or self.refreshing or 'claude' not in self.options['agents']:
+            return
+        if now - self.last_expiry_check < EXPIRY_CHECK:
+            return
+        self.last_expiry_check = now
+        expiry = claudelogin.read_expiry()
+        if expiry is None or expiry > now + claudelogin.REFRESH_SKEW:
+            return
+        if now - self.last_refresh_try < AUTO_REFRESH_RETRY:
+            return
+        self.refreshing = True
+        self.last_refresh_try = now
+
+        def run():
+            refreshed = False
+            try:
+                if self.take_refresh_slot(now):
+                    claude = claudelogin.find_claude()
+                    refreshed = bool(claude) and claudelogin.refresh(claude)
+            except Exception:
+                traceback.print_exc()
+            wx.CallAfter(self.after_auto_refresh, refreshed)
+        threading.Thread(target=run, daemon=True).start()
+
+    def take_refresh_slot(self, now):
+        '''24 시간 상한 안이면 이번 시도를 적고 참. 실에서 부른다(색인 쓰기가 기다릴 수 있다).'''
+        recent = [stamp for stamp in (self.index.get_meta(AUTO_REFRESH_KEY) or [])
+                  if now - stamp < 86400]
+        if len(recent) >= AUTO_REFRESH_DAILY_CAP:
+            return False
+        self.index.set_meta(AUTO_REFRESH_KEY, recent + [now])
+        return True
+
+    def after_auto_refresh(self, refreshed):
+        self.refreshing = False
+        if refreshed:
+            self.reload(force=True)
