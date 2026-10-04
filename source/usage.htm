@@ -191,6 +191,19 @@ section { margin-bottom: 14px; }
 }
 .limit .bar > i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--bar-radius); }
 .limit .bar > .time { background: color-mix(in srgb, var(--dim) 45%, var(--grid)); }
+/* Codex 강제 초기화 이용권. 이용권마다 만료가 따로라 한 장씩 남은 시간을 둔다.
+   하루 안에 사라질 것은 주황 테두리에 '곧' 표시를 붙인다 (색만으로 가르지 않는다). */
+.resets { margin-top: 14px; }
+.resets .head { display: flex; align-items: baseline; gap: 8px; }
+.resets .name { font-size: 12px; }
+.resets .when { flex: 1; font-size: 11px; color: var(--dim); }
+.resets .count { font-weight: 600; color: var(--accent); }
+.resets.stale { opacity: 0.55; }
+.reset-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.reset-chip { padding: 1px 7px; border: 1px solid var(--rim); border-radius: 4px; font-size: 11px; color: var(--dim); }
+.reset-chip b { font-weight: 600; color: var(--text); }
+.reset-chip.soon { border-color: var(--warn); }
+.reset-chip.soon b { color: var(--warn); }
 
 /* 막대 그림 (추세·산출·시간대 공용). 0 에서 자라고, 막대 사이 2px 틈,
    끝만 둥글다. 음수는 0 선 아래로 주황. ------------------------------------ */
@@ -778,7 +791,8 @@ function drawLimits(limits, status) {
             '<div class="limit-brand ' + group.provider + '">' + brandIcon(group.provider) +
             '<span class="brand-name">' + esc(AGENT_NAMES[group.provider] || group.provider) + '</span>' +
             '<span class="brand-plan">' + esc(plans[group.provider] || '') + '</span></div>' +
-            group.limits.map(drawLimit).join('') + '</div>';
+            group.limits.map(drawLimit).join('') +
+            (group.provider === 'codex' ? drawResets(latest && latest.codex_resets) : '') + '</div>';
     }).join('');
     host.insertAdjacentHTML('afterbegin', limitNote(status));
 }
@@ -806,7 +820,32 @@ function countdown(until) {
     return Math.max(1, minutes) + 'm';
 }
 
+var RESET_SOON = 24 * 3600;
+
+function drawResets(resets) {
+    if (!resets) { return ''; }
+    var now = Date.now() / 1000;
+    // 1 분마다 다시 모으기 전에 만료된 것은 여기서 뺀다.
+    var credits = resets.credits.filter(function (credit) { return !credit.expires || credit.expires > now; });
+    var next = credits.length && credits[0].expires;
+    var chips = credits.map(function (credit, order) {
+        var soon = credit.expires && credit.expires - now < RESET_SOON;
+        return '<span class="reset-chip' + (soon ? ' soon' : '') + '" title="' + esc(credit.title) + '">#' +
+            (order + 1) + ' <b class="num" data-until="' + (credit.expires || '') + '">' +
+            (credit.expires ? countdown(credit.expires) : 'no expiry') + '</b>' + (soon ? ' · soon' : '') + '</span>';
+    }).join('');
+    return '<div class="resets' + (resets.stale ? ' stale' : '') + '">' +
+        '<div class="head"><span class="name">Force resets</span>' +
+        '<span class="when">' + (next ? 'next expires in <span data-until="' + next + '">' + countdown(next) + '</span>' : '') +
+        (resets.stale ? ' · cached' : '') + '</span>' +
+        '<span class="count num">' + credits.length + ' available</span></div>' +
+        (chips ? '<div class="reset-chips">' + chips + '</div>' : '') + '</div>';
+}
+
 function drawCountdowns() {
+    document.querySelectorAll('.resets [data-until]').forEach(function (node) {
+        if (node.getAttribute('data-until')) { node.textContent = countdown(+node.getAttribute('data-until')); }
+    });
     document.querySelectorAll('.limit-lift .time-left').forEach(function (node) {
         node.textContent = countdown(+node.getAttribute('data-until'));
     });

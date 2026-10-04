@@ -81,6 +81,31 @@ def get_claude_limits(index, fresh):
     return limits, status
 
 
+# Codex 초기화 이용권도 서버에 물어야 한다. 간격은 Claude 한도와 같다.
+codex_resets = {'at': 0, 'value': None}
+
+
+def get_codex_resets(index, options, fresh):
+    '''{'credits': [...], 'stale': 지난 값인지} 또는 None. 못 받으면 남겨 둔 것에서
+    그 사이 만료된 이용권만 빼고 내준다 (쓴 것은 알 수 없으니 'stale' 로 표시).'''
+    if 'codex' not in options['agents']:
+        return None
+    now = time.time()
+    if fresh or now - codex_resets['at'] > CLAUDE_LIMITS_TTL:
+        codex_resets['value'] = usagedata.get_codex_resets()
+        codex_resets['at'] = now
+        if codex_resets['value'] is not None:
+            index.set_meta('codex_resets', {'at': now, 'credits': codex_resets['value']})
+    credits = codex_resets['value']
+    stale = credits is None
+    if stale:
+        credits = (index.get_meta('codex_resets') or {}).get('credits')
+        if credits is None:
+            return None
+    credits = [credit for credit in credits if not credit['expires'] or credit['expires'] > now]
+    return {'credits': credits, 'stale': stale}
+
+
 def get_day(offset=0):
     return time.strftime('%Y-%m-%d', time.localtime(time.time() - offset * 86400))
 
@@ -376,6 +401,7 @@ def build(index, options, refresh_git=False, fresh_limits=False):
         'all': get_totals(index, where, args),
         'limits': limits,
         'claude_status': claude_status,
+        'codex_resets': get_codex_resets(index, options, fresh_limits),
         'plans': get_plans(index, options),
         'daily': get_daily(index, options, where, args),
         'code': code,

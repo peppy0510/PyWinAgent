@@ -51,6 +51,15 @@ CREDENTIALS = (
     r'\\wsl.localhost\ubuntu-24.04\root\.claude\.credentials.json',
 )
 
+CODEX_RESETS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits'
+
+# Codex 강제 초기화 이용권은 기록에 없고 이 곳에서만 나온다. Codex 가 로그인해 둔 파일의
+# 토큰으로 묻는다. Claude 와 같이 Windows 쪽을 먼저, 대답이 없으면 WSL 쪽을 댄다.
+CODEX_AUTHS = (
+    os.path.join(os.path.expanduser('~'), '.codex', 'auth.json'),
+    r'\\wsl.localhost\ubuntu-24.04\root\.codex\auth.json',
+)
+
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
 
 # 창 길이는 응답에 없다. 지나간 시간을 그리려고 종류로 정한다 — 5시간 창 하나 말고는
@@ -234,6 +243,62 @@ def get_limits():
                        'severity': item.get('severity', 'normal'),
                        'remains': get_reset_seconds(resets), 'window': window})
     return limits
+
+
+# 마지막으로 초기화 이용권을 못 물은 까닭. 뜻은 last_error 와 같다.
+codex_resets_error = None
+
+
+def ask_codex_resets(path):
+    '''(응답, 까닭). ★토큰은 쓰고 버린다 — 찍지도, 남기지도 않는다.'''
+    try:
+        with open(path, encoding='utf-8') as file:
+            tokens = json.load(file)['tokens']
+    except Exception:
+        return None, None
+    if not tokens.get('access_token'):
+        return None, None
+    headers = {'Authorization': 'Bearer ' + tokens['access_token'],
+               'Accept': 'application/json', 'User-Agent': 'codex-cli'}
+    if tokens.get('account_id'):
+        headers['ChatGPT-Account-Id'] = tokens['account_id']
+    request = urllib.request.Request(CODEX_RESETS_URL, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode('utf-8')), None
+    except urllib.error.HTTPError as error:
+        return None, 'expired' if error.code in (401, 403) else 'offline'
+    except Exception:
+        return None, 'offline'
+
+
+def get_codex_resets():
+    '''쓸 수 있는 Codex 강제 초기화(5시간+주간 한도를 한 번에 비운다) 이용권들.
+    [{'expires': 만료 시각(epoch 초) 또는 None, 'title': ...}] 를 만료가 이른 차례로.
+    못 물으면 None 이다. 이용권마다 받은 날부터 30 일 뒤에 사라진다.'''
+    global codex_resets_error
+    body = None
+    error = None
+    for path in CODEX_AUTHS:
+        body, error = ask_codex_resets(path)
+        if body:
+            break
+    if not body or not isinstance(body.get('credits'), list):
+        codex_resets_error = error or 'offline'
+        return None
+    codex_resets_error = None
+
+    credits = []
+    for item in body['credits']:
+        if not isinstance(item, dict) or item.get('status') != 'available':
+            continue
+        try:
+            expires = datetime.fromisoformat(item['expires_at'].replace('Z', '+00:00')).timestamp()
+        except (KeyError, AttributeError, ValueError):
+            expires = None
+        credits.append({'expires': expires, 'title': item.get('title') or ''})
+    credits.sort(key=lambda credit: credit['expires'] or float('inf'))
+    return credits
 
 
 def format_remaining(seconds):
