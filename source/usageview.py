@@ -191,12 +191,14 @@ class UsageView(wx.Panel):
             self.reload(force=True)
         elif result == 'login':
             # 사람이 터미널에서 로그인을 마칠 때까지 기다린다. 새 토큰이 보이면 바로 다시 묻는다.
+            # 서버가 401 로 거절한 토큰은 만료 시각이 아직 남아 있을 수 있다. 시각이 바뀐 것만 새 토큰이다.
             self.login_since = time.time()
+            self.login_before = claudelogin.read_expiry()
             self.login_timer = wx.CallLater(LOGIN_POLL_MS, self.watch_login)
 
     def watch_login(self):
         expiry = claudelogin.read_expiry()
-        if expiry and expiry > time.time():
+        if expiry and expiry != self.login_before and expiry > time.time():
             self.call('setLoginState', 'refreshed')
             self.reload(force=True)
             return
@@ -280,8 +282,10 @@ class UsageView(wx.Panel):
 
     def settle(self):
         self.loading = False
+        # 미뤄 둔 것은 force 로 부른 것뿐이다. 그대로 force 로 돌려야 한도를 다시 묻는다 —
+        # 안 그러면 로그인 직후의 새 토큰이 5 분 캐시(CLAUDE_LIMITS_TTL) 뒤에 묻힌다.
         if self.pending:
-            self.reload()
+            self.reload(force=True)
 
     def tick(self):
         # 안 보여도 다시 읽는다. 트레이·위젯·알림이 이 값을 쓴다.
