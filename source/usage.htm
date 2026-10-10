@@ -820,6 +820,16 @@ function countdown(until) {
     return Math.max(1, minutes) + 'm';
 }
 
+/* 풀리는 시각을 이 곳 시간으로. 물은 때와 받은 때의 몇 초 어긋남에 분이 흔들리지 않게 반올림한다. */
+var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function clock(at) {
+    var date = new Date(Math.round(at / 60) * 60000);
+    function pad(value) { return (value < 10 ? '0' : '') + value; }
+    return (date.getMonth() + 1) + '/' + date.getDate() + ' ' + WEEKDAYS[date.getDay()] + ' ' +
+        pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
 var RESET_SOON = 24 * 3600;
 
 function drawResets(resets) {
@@ -858,10 +868,11 @@ function drawLimit(limit) {
     var lift = !limit.reached ? '' :
         '<div class="limit-lift"><span class="time-left num" style="color:' + tint +
         '" data-until="' + limit.until + '">' + countdown(limit.until) + '</span>' +
-        '<span class="lift-caption">until this limit lifts</span></div>';
+        '<span class="lift-caption">until this limit lifts · ' + clock(limit.until) + '</span></div>';
     return '<div class="limit' + (limit.stale ? ' stale' : '') + (limit.reached ? ' reached' : '') + '">' +
         '<div class="head"><span class="name">' + esc(name) + '</span>' +
-        '<span class="when">' + esc(limit.when) + (limit.stale ? ' · cached' : '') + '</span>' +
+        '<span class="when">' + esc(limit.when) + (limit.reset_at ? ' · ' + clock(limit.reset_at) : '') +
+        (limit.stale ? ' · cached' : '') + '</span>' +
         '<span class="elapsed">' + (limit.elapsed === null ? '' : limit.elapsed + '% elapsed') +
         '</span><span class="pct num" style="color:' + tint + '">' + limit.percent + '%</span></div>' +
         '<div class="bar">' +

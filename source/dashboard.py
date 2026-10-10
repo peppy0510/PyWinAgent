@@ -199,6 +199,8 @@ def get_limits(index, options, fresh=False):
         # 1 분마다 새로 모으기 전에도 줄어들어야 하므로 남은 초가 아니라 절대 시각을 넘긴다.
         limit['reached'] = limit['percent'] >= 100 and limit['remains'] is not None
         limit['until'] = now + limit['remains'] if limit['reached'] else None
+        # 남은 시간 옆에 풀리는 날짜·시각도 적는다.
+        limit['reset_at'] = None if limit['remains'] is None else now + limit['remains']
         window = limit.get('window')
         limit['elapsed'] = None if not window or limit['remains'] is None else \
             max(0, min(100, int(round((1 - limit['remains'] / float(window)) * 100))))
