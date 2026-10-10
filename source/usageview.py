@@ -104,6 +104,8 @@ class UsageView(wx.Panel):
             'sections': None,
             'wide': True,
         }
+        # 지난번에 그려진 묶음 높이. 다음 시작 때 뼈대가 그만큼 자리를 잡아 둔다.
+        self.section_heights = settings.get('section_heights') or {}
         self.SetBackgroundColour(wx.Colour(theme['bg']))
 
         # ★테두리를 끄지 않으면 컨트롤 둘레에 회색+흰색 1px 이 둘러 나온다.
@@ -124,6 +126,7 @@ class UsageView(wx.Panel):
                 page = file.read()
             # SetPage 로 띄운 페이지는 기준 경로가 없어 상대 경로 그림을 못 읽는다. 바로 싣는다.
             page = page.replace('var BRAND_SRC = {};', 'var BRAND_SRC = %s;' % json.dumps(get_brand_sources()), 1)
+            page = page.replace('var SECTION_HEIGHTS = {};', 'var SECTION_HEIGHTS = %s;' % json.dumps(self.section_heights), 1)
             self.view.SetPage(page, '')
         except OSError:
             self.view.SetPage('<body>usage.htm is missing</body>', '')
@@ -158,7 +161,8 @@ class UsageView(wx.Panel):
 
     def get_options(self):
         return {'hidden_projects': self.options['hidden'],
-                'excluded_projects': self.options['excluded']}
+                'excluded_projects': self.options['excluded'],
+                'section_heights': self.section_heights}
 
     def on_message(self, event):
         message = event.GetString()
@@ -173,6 +177,14 @@ class UsageView(wx.Panel):
             self.toggle_project(command, argument)
         elif command == 'claude-login':
             self.sign_in()
+        elif command == 'heights' and argument:
+            # 페이지는 높이가 바뀌었을 때만 보낸다. 받은 김에 바로 저장한다.
+            try:
+                self.section_heights = json.loads(argument)
+            except ValueError:
+                return
+            if self.on_options:
+                self.on_options()
 
     def sign_in(self):
         '''Claude 토큰 갱신. 조용한 갱신이 길면 수십 초라 실에서 돌린다.'''

@@ -672,7 +672,51 @@ var SKELETON = {
 document.querySelectorAll('[data-skeleton]').forEach(function (host) {
     host.innerHTML = SKELETON[host.getAttribute('data-skeleton')]();
 });
-setTimeout(layoutSections, 0);
+
+/* 한도 줄·세션 수는 그때그때 달라 뼈대 모양만으로는 키를 못 맞춘다. 지난번에 그려진
+   묶음·카드 높이를 앱이 실어 주면 (usageview.load_page) 첫 값이 올 때까지 그 높이로
+   못박아 둔다 (뼈대가 더 길면 잘린다). 단 수가 다르면 폭이 달라 키도 다르니 쓰지 않는다. */
+var SECTION_HEIGHTS = {};
+var reserved = [];
+
+function reserveSections() {
+    if (SECTION_HEIGHTS.columns !== getColumnCount()) { return; }
+    Object.keys(SECTION_HEIGHTS.sections || {}).forEach(function (id) {
+        var node = document.querySelector('section[data-id="' + id + '"]');
+        var card = node && node.querySelector('.card');
+        if (!card) { return; }
+        node.style.height = SECTION_HEIGHTS.sections[id][0] + 'px';
+        card.style.height = SECTION_HEIGHTS.sections[id][1] + 'px';
+        card.style.overflow = 'hidden';
+        reserved.push(node, card);
+    });
+}
+
+function releaseSections() {
+    reserved.forEach(function (node) { node.style.height = ''; node.style.overflow = ''; });
+    reserved = [];
+}
+
+/* 그린 뒤의 높이를 앱에 알린다. 1 분마다 그리므로 바뀌었을 때만 보낸다. */
+function reportSections() {
+    var sections = {};
+    document.querySelectorAll('section[data-id]').forEach(function (node) {
+        var card = node.querySelector('.card');
+        if (!node.hidden && card) {
+            sections[node.getAttribute('data-id')] = [node.offsetHeight, card.offsetHeight];
+        }
+    });
+    var value = JSON.stringify({columns: getColumnCount(), sections: sections});
+    if (value !== JSON.stringify(SECTION_HEIGHTS)) {
+        SECTION_HEIGHTS = JSON.parse(value);
+        send('heights:' + value);
+    }
+}
+
+setTimeout(function () {
+    if (!latest) { reserveSections(); }
+    layoutSections();
+}, 0);
 
 function drawControls() {
     document.querySelectorAll('[data-control]').forEach(function (host) {
@@ -1385,6 +1429,7 @@ function drawUpdated() {
 function render(data) {
     if (!data) { return; }
     latest = data;
+    releaseSections();
     el('reload').disabled = false;
     el('reload').textContent = 'Reload';
     drawControls();
@@ -1401,6 +1446,7 @@ function render(data) {
     // 키가 바뀐 카드는 다음 갱신 때에야 제 단으로 옮겨 가며 번쩍였다.
     layoutSections();
     drawUpdated();
+    reportSections();
 }
 
 setInterval(function () { drawUpdated(); drawCountdowns(); }, 15000);
