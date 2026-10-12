@@ -30,7 +30,7 @@ AGENTS = (('claude', 'Claude', 'Count Claude Code usage'),
 SECTIONS = (('planUsage', 'Plan Usage'), ('codeOutput', 'Code Output'), ('trend', 'Trend'),
             ('sessions', 'Sessions'), ('activity', 'Activity'), ('modelUsage', 'Model Usage'))
 
-CURRENCIES = (('USD', 'USD'), ('KRW', 'KRW'), ('CNY', 'CNY'))
+CURRENCIES = (('USD', 'USD'), ('KRW', 'KRW'))
 
 THEMES = (('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark'))
 
@@ -73,8 +73,6 @@ class SettingsBox(ScrollArea):
         # 두 번 누르면 돌아가는 값은 처음 설정의 기본값(load 와 같은 값)이다.
         self.krw = SliderCard(board, theme, 'KRW per USD', 'Exchange rate for KRW',
                               (900, 2000, 10, 0), on_change, default=1380)
-        self.cny = SliderCard(board, theme, 'CNY per USD', 'Exchange rate for CNY',
-                              (5, 10, 0.05, 2), on_change, default=7.2)
 
         self.layout = {key: LayoutCard(board, theme, label, 'Drag to reorder',
                                        on_change, self.on_drag)
@@ -112,7 +110,6 @@ class SettingsBox(ScrollArea):
         self.widget.SetValue(settings.get('compact_widget', False))
         self.currency.SetValue(settings.get('currency', 'USD'))
         self.krw.SetValue(settings.get('usd_to_krw', 1380))
-        self.cny.SetValue(settings.get('usd_to_cny', 7.2))
         order = [key for key in settings.get('section_order', []) if key in self.layout]
         self.order = order + [key for key in self.layout if key not in order]
         hidden = settings.get('hidden_sections', [])
@@ -139,7 +136,7 @@ class SettingsBox(ScrollArea):
             ('appearance', 'Appearance', (self.theme_choice, self.wide)),
             ('agents', 'Agents', tuple(self.agents.values())),
             ('widget', 'Widget', (self.widget,)),
-            ('currency', 'Currency', (self.currency, self.krw, self.cny)),
+            ('currency', 'Currency', (self.currency, self.krw)),
         )]
 
         # 끌어서 차례를 바꾸는 줄은 따로 사이저에 담아 차례가 바뀔 때마다 다시 채운다.
@@ -298,7 +295,6 @@ class SettingsBox(ScrollArea):
             'compact_widget': self.widget.GetValue(),
             'currency': self.currency.GetValue(),
             'usd_to_krw': self.krw.GetValue(),
-            'usd_to_cny': self.cny.GetValue(),
             'section_order': list(self.order),
             'hidden_sections': [key for key, card in self.layout.items() if not card.GetValue()],
         }
@@ -310,8 +306,6 @@ class SettingsBox(ScrollArea):
         currency = self.currency.GetValue()
         if currency == 'KRW':
             return self.krw.GetValue()
-        if currency == 'CNY':
-            return self.cny.GetValue()
         return 1.0
 
     def apply_theme(self, theme):

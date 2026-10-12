@@ -621,7 +621,7 @@ function shade(level) {
 function money(value, digits) {
     var currency = (latest && latest.currency) || 'USD';
     var rate = currency === 'USD' ? 1 : ((latest && latest.rate) || 1);
-    var symbol = {USD: '$', KRW: '₩', CNY: '¥'}[currency] || '$';
+    var symbol = {USD: '$', KRW: '₩'}[currency] || '$';
     if (currency === 'KRW') { digits = 0; }
     return symbol + (value * rate).toLocaleString('en-US', {
         minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0});
