@@ -436,13 +436,20 @@ class Panel:
     적고 on_fold 로 알린다.
 
     body 는 줄(창) 또는 줄을 담은 사이저의 나열이다. 판 모양(첫 줄 금·마지막 줄 모서리)을
-    정하는 것은 rows — 화면에 놓인 차례대로의 줄 창들이다.'''
+    정하는 것은 rows — 화면에 놓인 차례대로의 줄 창들이다.
 
-    def __init__(self, parent, theme, key, title, body, folds, on_fold, subtitle='', rows=None):
+    header 를 주면 그 띠를 쓴다 (띠 안에 단추를 더 둔 띠). 접는 일은 그 띠의 on_toggle 로 건다.'''
+
+    def __init__(self, parent, theme, key, title, body, folds, on_fold, subtitle='', rows=None,
+                 header=None):
         self.key = key
         self.folds = folds
         self.on_fold = on_fold
-        self.header = PanelHeader(parent, theme, title, subtitle, self.toggle)
+        if header is None:
+            header = PanelHeader(parent, theme, title, subtitle, self.toggle)
+        else:
+            header.on_toggle = self.toggle
+        self.header = header
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(self.header, 0, wx.EXPAND)
         for item in body:

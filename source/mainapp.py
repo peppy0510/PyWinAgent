@@ -16,10 +16,7 @@ from settingsbox import SettingsBox
 from sidemenu import SideMenu
 from titlebar import TitleBar
 from ttsbox import TtsBox
-# 사용량 페이지는 두 벌이다. 같은 값을 usagebox 는 캔버스에 손으로 그리고
-# usageview 는 웹뷰에 맡긴다. 이 줄을 바꿔 갈아 끼운다.
-# from usagebox import UsageBox
-from usageview import UsageView
+from usagebox import UsageBox
 from utilities import APP_NAME
 from utilities import THEMES
 from utilities import apply_clip_siblings
@@ -74,7 +71,7 @@ class MainFrame(wx.Frame):
 
         self.book = wx.Simplebook(self)
         self.ttsbox = TtsBox(self.book, theme, self.folds, self.store_settings)
-        self.usagebox = UsageView(self.book, theme, settings, self.store_settings)
+        self.usagebox = UsageBox(self.book, theme, settings, self.store_settings)
         self.usagebox.on_data = self.on_usage
         self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings, {
             'include_projects': lambda: self.set_projects('excluded'),

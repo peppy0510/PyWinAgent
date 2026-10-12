@@ -79,9 +79,7 @@ python source\makeshortcut.py
 | `source/mainapp.py` | `MainFrame`, page wiring, timer, theme and settings |
 | `source/ttsbox.py` | TTS settings page: voice grid, preview and the value cards |
 | `source/ttsconfig.py` | Reads and writes the toolkit's TTS settings; voice list; preview |
-| `source/usageview.py` | Usage page as a WebView — the one currently wired up |
-| `source/usage.htm` | The usage dashboard itself: HTML, CSS and the candle chart |
-| `source/usagebox.py` | The same page drawn on canvas — swap it back in from `mainapp` |
+| `source/usagebox.py` | Usage page: rack panels drawn on canvas, gathering and sign-in |
 | `source/usagedata.py` | Runs `ccusage` and scans the session records for what it lacks |
 | `source/settingsbox.py` | Settings page of cards, opened from the side menu |
 | `source/titlebar.py` | Canvas-drawn title bar replacing the system caption |
@@ -125,7 +123,7 @@ collected across every sibling repository, and the live session panel.
 
 ## The trend chart
 
-The trend is `TimeGraph` from itruck-service's comjs, ported to plain markup. Bars sit flush
+The trend is `TimeGraph` from itruck-service's comjs, redrawn on canvas. Bars sit flush
 against each other and grow from the bottom, the tallest value is the full height, and two
 label plates hang off the top corners — the current value on the left, `Peak:` on the right —
 with the graphic padded down so the bars never run under them. No charting library, there or
@@ -136,30 +134,27 @@ The candle chart from [honeypot](https://github.com/peppy0510/honeypot) was trie
 dropped. Candles need four numbers a period and a day has one, so the open had to be faked
 from the previous day's close and the wicks were always zero — a bar chart wearing a costume.
 
-## Two Usage pages
+## The Usage page
 
-The Usage page exists twice over the same data, and `mainapp` picks one with a single import
-— the arrangement `honeypot` uses for its three window shells.
+The Usage page is drawn on `wx.GraphicsContext` like every other page and every other PyWin
+app. It was a `wx.html2.WebView` page for a while, which bought hover, tooltips and a themed
+scrollbar for free, but it was the one page with a second runtime (WebView2), a second
+language and a debugger that had to be reached over CDP. The canvas page now has all of it.
 
-`usageview.py` hosts a `wx.html2.WebView` on the Edge (Chromium) backend and hands the
-drawing to `usage.htm`. `usagebox.py` draws the identical panels on `wx.GraphicsContext`.
-The web version is 100 lines of Python and 324 of markup against 345 lines of canvas code,
-and gets hover, text selection and a themed scrollbar for nothing. The canvas version has no
-second runtime to keep alive and no second language to debug in.
+The page is the same rack of `controls.Panel`s as the TTS and Settings pages. Two things were
+added for it:
 
-Two things had to be right for the web version to fit this app at all, and both were measured
-rather than assumed:
+- `BandHeader` puts buttons in the name band — the Today / All choice, or Reload on the
+  Refresh band — next to the fold button, each with its own hit area.
+- `Body` is one canvas per panel. A single `render(painter, width)` both measures and draws:
+  the page runs it on a scratch context to get the height for the current width, then again
+  to paint, so the two can never disagree. Hit areas and tooltips are recorded while
+  drawing, so a bar, a cell or a link reacts exactly where it was drawn.
 
-- A `WebView` is a native child window, so the sliding side menu drawn on canvas looked like
-  it would be swallowed by it. It is not — `apply_clip_siblings` on the view plus `Raise()`
-  on the overlay keeps the drawer on top. The custom title bar and menu survive unchanged.
-- `AddScriptMessageHandler` must be called **before** `SetPage`. Registering it on
-  `EVT_WEBVIEW_LOADED` is too late and silently drops the page's first message, which is the
-  one that says it is ready for data.
-
-Python pushes state with `RunScriptAsync('render(…)')` and the page answers over
-`window.chrome.webview.postMessage`. Themes cross the same way, as CSS custom properties, so
-the light and dark schemes stay defined in one place.
+A panel whose height changes inside its own size event must not relayout on the spot. The
+sizer that sent the event is still mid-layout and writes the old height back afterwards (a
+191 px panel stayed at 295 px). The relayout is deferred to the next turn of the event loop and
+coalesced.
 
 ## Notes on the widgets
 
