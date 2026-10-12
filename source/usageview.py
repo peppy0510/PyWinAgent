@@ -50,7 +50,8 @@ PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'usage.htm')
 BRAND_ICONS = ('claude', 'codex-dark', 'codex-light')
 
 # 페이지가 CSS 변수로 받는 색. 테마가 바뀌면 이만큼만 다시 넘긴다.
-TINTS = ('bg', 'face', 'rim', 'text', 'dim', 'accent', 'mint', 'grid', 'warn', 'close')
+TINTS = ('bg', 'face', 'band', 'rim', 'text', 'dim', 'faint', 'accent', 'on_accent', 'control',
+         'control_hover', 'control_down', 'edge', 'mint', 'grid', 'warn', 'close')
 
 # 페이지가 보이는 동안 이 간격으로 다시 읽는다. 색인 덕에 새 줄만 읽는다.
 AUTO_REFRESH = 60
@@ -106,6 +107,8 @@ class UsageView(wx.Panel):
         }
         # 지난번에 그려진 묶음 높이. 다음 시작 때 뼈대가 그만큼 자리를 잡아 둔다.
         self.section_heights = settings.get('section_heights') or {}
+        # 접어 둔 판 (data-id). 페이지가 접고 펼 때마다 알려 온다.
+        self.folded = list(settings.get('usage_folded_sections') or [])
         self.SetBackgroundColour(wx.Colour(theme['bg']))
 
         # ★테두리를 끄지 않으면 컨트롤 둘레에 회색+흰색 1px 이 둘러 나온다.
@@ -127,6 +130,7 @@ class UsageView(wx.Panel):
             # SetPage 로 띄운 페이지는 기준 경로가 없어 상대 경로 그림을 못 읽는다. 바로 싣는다.
             page = page.replace('var BRAND_SRC = {};', 'var BRAND_SRC = %s;' % json.dumps(get_brand_sources()), 1)
             page = page.replace('var SECTION_HEIGHTS = {};', 'var SECTION_HEIGHTS = %s;' % json.dumps(self.section_heights), 1)
+            page = page.replace('var FOLDED = [];', 'var FOLDED = %s;' % json.dumps(self.folded), 1)
             self.view.SetPage(page, '')
         except OSError:
             self.view.SetPage('<body>usage.htm is missing</body>', '')
@@ -162,7 +166,8 @@ class UsageView(wx.Panel):
     def get_options(self):
         return {'hidden_projects': self.options['hidden'],
                 'excluded_projects': self.options['excluded'],
-                'section_heights': self.section_heights}
+                'section_heights': self.section_heights,
+                'usage_folded_sections': self.folded}
 
     def on_message(self, event):
         message = event.GetString()
@@ -177,6 +182,14 @@ class UsageView(wx.Panel):
             self.toggle_project(command, argument)
         elif command == 'claude-login':
             self.sign_in()
+        elif command == 'folds' and argument:
+            try:
+                folded = json.loads(argument)
+            except ValueError:
+                return
+            self.folded = [item for item in folded if isinstance(item, str)]
+            if self.on_options:
+                self.on_options()
         elif command == 'heights' and argument:
             # 페이지는 높이가 바뀌었을 때만 보낸다. 받은 김에 바로 저장한다.
             try:

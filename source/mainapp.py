@@ -69,8 +69,11 @@ class MainFrame(wx.Frame):
 
         self.set_icon()
 
+        # 접어 둔 판의 키 (TTS·설정 페이지 공용). 접고 펼 때마다 바로 저장한다.
+        self.folds = set(settings.get('folded_panels', []))
+
         self.book = wx.Simplebook(self)
-        self.ttsbox = TtsBox(self.book, theme)
+        self.ttsbox = TtsBox(self.book, theme, self.folds, self.store_settings)
         self.usagebox = UsageView(self.book, theme, settings, self.store_settings)
         self.usagebox.on_data = self.on_usage
         self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings, {
@@ -78,7 +81,7 @@ class MainFrame(wx.Frame):
             'show_projects': lambda: self.set_projects('hidden'),
             'reset_index': self.usagebox.reset_index,
             'count_orphans': self.usagebox.count_orphans,
-        })
+        }, self.folds, self.store_settings)
         for page in (self.usagebox, self.ttsbox, self.settingsbox):
             self.book.AddPage(page, '')
 
@@ -275,6 +278,7 @@ class MainFrame(wx.Frame):
         settings.update({
             'rect': self.stored_rect,
             'compact_widget_position': self.widget_position,
+            'folded_panels': sorted(self.folds),
         })
         save_settings(settings)
         options = self.usagebox.get_options()

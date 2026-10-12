@@ -14,49 +14,121 @@ import math
 import time
 import wx
 
+from utilities import BAND_INSET
+from utilities import BUTTON_FONT
+from utilities import BUTTON_GAP
+from utilities import BUTTON_HEIGHT
+from utilities import BUTTON_PAD
 from utilities import CARD_HEIGHT
-from utilities import CARD_RADIUS
+from utilities import HEADER_BAND
+from utilities import PANEL_GAP
+from utilities import PANEL_MARGIN
+from utilities import PANEL_PAD
+from utilities import PANEL_RADIUS
 from utilities import ROUND_SIZE
 from utilities import Canvas
 from utilities import apply_clip_siblings
-from utilities import draw_card_rim
+from utilities import draw_chevron
+from utilities import draw_frame
+from utilities import draw_text_in
+from utilities import fill_rect
 from utilities import get_font
+from utilities import get_ink
+from utilities import get_text_top
+from utilities import get_text_width
 from utilities import mix
 from utilities import shade
 
 
 class Pressable(Canvas):
-    '''캔버스 버튼들이 공유하는 hover / press 상태.'''
+    '''캔버스 단추들이 공유하는 hover / press. 반응하는 것은 get_hit() 자리뿐이다 — 줄의 글씨
+    위에서 단추가 밝아지거나 눌리면 안 된다(사용자). 누르면 마우스를 잡고, 그 자리 안에서
+    놓아야 눌린 것이다. 밖으로 끌고 나가면 눌린 모양이 풀리고, 놓으면 아무 일도 없다.
+    빨리 두 번 누르면 wx 는 둘째를 두 번 누름으로 보낸다 — 그것도 누름이다(on_dclick).'''
 
     def __init__(self, parent, theme, on_click):
         super().__init__(parent, theme)
         self.on_click = on_click
         self.hovered = False
         self.pressed = False
+        self.holding = False
+        self.up_position = wx.Point(-1, -1)
         self.Bind(wx.EVT_LEFT_DOWN, self.on_down)
+        self.Bind(wx.EVT_LEFT_DCLICK, self.on_dclick)
         self.Bind(wx.EVT_LEFT_UP, self.on_up)
+        self.Bind(wx.EVT_MOTION, self.on_track)
         self.Bind(wx.EVT_ENTER_WINDOW, self.on_enter)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
+        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_lost)
+
+    def get_hit(self):
+        '''누를 수 있는 자리. None 이면 창 전체.'''
+        return None
+
+    def hits(self, position):
+        rect = self.get_hit()
+        return rect is None or rect.Contains(position)
+
+    def set_hovered(self, hovered):
+        if hovered != self.hovered:
+            self.hovered = hovered
+            self.update_cursor()
+            self.Refresh()
+
+    def update_cursor(self):
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND if self.hovered else wx.CURSOR_ARROW))
+
+    def on_track(self, event):
+        inside = self.hits(event.GetPosition())
+        self.set_hovered(inside)
+        if self.holding and inside != self.pressed:
+            self.pressed = inside
+            self.Refresh()
+        event.Skip()
 
     def on_down(self, event):
+        if not self.hits(event.GetPosition()):
+            event.Skip()
+            return
+        self.holding = True
         self.pressed = True
+        if not self.HasCapture():
+            self.CaptureMouse()
         self.Refresh()
+
+    def on_dclick(self, event):
+        self.on_down(event)
 
     def on_up(self, event):
-        was_pressed = self.pressed
+        if self.HasCapture():
+            self.ReleaseMouse()
+        # 누른 일이 어느 칸인지(고르기·보이스 칸)는 놓은 자리로 정한다. 전역 커서 자리를 다시
+        # 읽으면 이벤트와 어긋날 수 있다.
+        self.up_position = event.GetPosition()
+        clicked = self.holding and self.hits(self.up_position)
+        self.holding = False
         self.pressed = False
         self.Refresh()
-        if was_pressed and self.hovered and self.on_click:
+        if clicked and self.on_click:
             self.on_click()
 
-    def on_enter(self, event):
-        self.hovered = True
-        self.Refresh()
-
-    def on_leave(self, event):
-        self.hovered = False
+    def on_lost(self, event):
+        self.holding = False
         self.pressed = False
         self.Refresh()
+
+    def on_enter(self, event):
+        self.set_hovered(self.hits(event.GetPosition()))
+
+    def on_leave(self, event):
+        # 잡고 있는 동안은 밖으로 나가도 놓을 때까지 기다린다. 눌린 모양만 풀린다.
+        if self.holding:
+            if self.pressed:
+                self.pressed = False
+                self.Refresh()
+            self.set_hovered(False)
+            return
+        self.set_hovered(False)
 
 
 class RoundButton(Pressable):
@@ -235,14 +307,191 @@ class RoundButton(Pressable):
         gc.FillPath(path)
 
 
-class CardBase(Pressable):
-    '''Windows 11 설정과 같은 카드 한 줄. 바탕과 제목·설명은 여기서 그리고,
-    오른쪽 끝의 조작부만 자식이 채운다. 조작부가 자리를 먼저 잡고 남는 왼쪽을
-    글자가 쓰므로, 제목은 조작부가 넓어지는 만큼 말없이 잘린다.'''
+def get_pen(gc, colour, width=1):
+    '''반 칸 굵기도 받는 그래픽 펜. wx.Pen 은 정수 굵기만 받는다.'''
+    return gc.CreatePen(wx.GraphicsPenInfo(wx.Colour(colour)).Width(width))
 
-    PADDING = 14
+
+def get_button_width(text):
+    return get_text_width(get_font(BUTTON_FONT), text) + BUTTON_PAD * 2
+
+
+def draw_button(gc, theme, rect, text, state='plain', tone=None):
+    '''누르는 것은 모두 이 모양 하나 (PyWinAudio 의 Button·Segment·Switch). state 는
+    'lit'(고른 것·켜진 것: 강조색으로 채움)·'down'·'hover'·'plain'. 글씨 굵기는 상태와 상관없이
+    같다 — 굵어지면 폭이 변해 옆 칸이 밀린다. tone='warn' 이면 한 번 더 누르면 되돌릴 수 없는 일.'''
+    if state == 'lit':
+        fill, edge, colour = theme['accent'], theme['accent'], theme['on_accent']
+    else:
+        fill = {'down': theme['control_down'], 'hover': theme['control_hover']}.get(
+            state, theme['control'])
+        edge, colour = theme['edge'], theme['text']
+        if tone == 'warn':
+            edge = colour = theme['warn']
+    gc.SetPen(get_pen(gc, edge))
+    gc.SetBrush(wx.Brush(wx.Colour(fill)))
+    gc.DrawRoundedRectangle(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1,
+                            PANEL_RADIUS)
+    draw_text_in(gc, text, rect, get_font(BUTTON_FONT), colour, back=fill)
+
+
+def draw_row_face(gc, theme, width, height, first, last):
+    '''판 본체의 한 줄. 판 안의 줄은 사이 틈 없이 붙고, 둘째 줄부터 위에 안쪽으로 들인
+    1 px 금을 긋는다. 판의 마지막 줄만 아래 모서리를 굴린다.'''
+    fill = theme['face']
+    if last:
+        fill_rect(gc, fill, 0, 0, width, height, PANEL_RADIUS)
+        fill_rect(gc, fill, 0, 0, width, PANEL_RADIUS)
+    else:
+        fill_rect(gc, fill, 0, 0, width, height)
+    if not first:
+        fill_rect(gc, theme['rim'], PANEL_PAD, 0, max(0, width - PANEL_PAD * 2), 1)
+
+
+class PanelHeader(Pressable):
+    '''판의 이름 띠 (PyWinAudio 랙 장치의 머리 띠와 같은 모양). 왼쪽 끝에 강조색 줄, 그 옆에
+    꺾쇠+대문자 제목이 한 단추로 서고 그 단추만 접고 편다. 부제는 단추 밖에 흐리게.'''
+
+    TITLE_SIZE = 9
+    CHEVRON = 10
+    # 단추 안: 왼쪽 여백, 꺾쇠, 꺾쇠와 제목 사이, 제목 뒤 여백.
+    LEFT = 6
+    SPACE = 6
+    RIGHT = 8
+    SUB_GAP = 8
+
+    def __init__(self, parent, theme, title, subtitle, on_toggle):
+        super().__init__(parent, theme, on_toggle)
+        self.title = title.upper()
+        self.subtitle = subtitle
+        self.folded = False
+        self.SetToolTip('Fold')
+        self.update_height()
+
+    def set_folded(self, folded):
+        self.folded = folded
+        self.SetToolTip('Unfold' if folded else 'Fold')
+        self.update_height()
+        self.Refresh()
+
+    def set_subtitle(self, subtitle):
+        if subtitle != self.subtitle:
+            self.subtitle = subtitle
+            self.Refresh()
+
+    def update_height(self):
+        # 펼친 판은 띠 아래 1 px 금까지가 머리다.
+        self.SetMinSize(wx.Size(-1, HEADER_BAND + (0 if self.folded else 1)))
+
+    def get_title_left(self):
+        return BAND_INSET + self.LEFT + self.CHEVRON + self.SPACE
+
+    def get_hit(self):
+        width = self.GetClientSize()[0]
+        right = self.get_title_left() + get_text_width(get_font(self.TITLE_SIZE, True),
+                                                       self.title) + self.RIGHT
+        return wx.Rect(BAND_INSET, BAND_INSET, max(0, min(right, width - BAND_INSET) - BAND_INSET),
+                       BUTTON_HEIGHT)
+
+    def draw(self, gc, width, height):
+        theme = self.theme
+        fill_rect(gc, theme['band'], 0, 0, width, HEADER_BAND, PANEL_RADIUS)
+        if not self.folded:
+            fill_rect(gc, theme['band'], 0, HEADER_BAND - PANEL_RADIUS, width, PANEL_RADIUS)
+            fill_rect(gc, theme['rim'], 0, HEADER_BAND, width, 1)
+        fill_rect(gc, theme['accent'], 0, 6, 2, HEADER_BAND - 12, 1)
+
+        hit = self.get_hit()
+        if self.pressed:
+            fill_rect(gc, theme['control_down'], hit.x, hit.y, hit.width, hit.height, PANEL_RADIUS)
+        elif self.hovered:
+            fill_rect(gc, theme['control_hover'], hit.x, hit.y, hit.width, hit.height, PANEL_RADIUS)
+        middle = HEADER_BAND / 2
+        draw_chevron(gc, 'right' if self.folded else 'down',
+                     BAND_INSET + self.LEFT + self.CHEVRON / 2, middle, self.CHEVRON,
+                     theme['text'] if self.hovered else theme['dim'])
+
+        font = get_font(self.TITLE_SIZE, True)
+        left = self.get_title_left()
+        limit = max(0, width - left - PANEL_PAD)
+        gc.SetFont(font, wx.Colour(theme['text']))
+        title = self.fit_text(gc, self.title, limit)
+        title_top = get_text_top(font, 0, HEADER_BAND)
+        gc.DrawText(title, left, title_top)
+        if self.subtitle:
+            sub_font = get_font(8)
+            sub_left = hit.x + hit.width + self.SUB_GAP
+            room = width - sub_left - PANEL_PAD
+            if room > 12:
+                gc.SetFont(sub_font, wx.Colour(theme['dim']))
+                # 부제는 제목과 기준선을 맞춘다. 글씨 크기가 달라 가운데로 맞추면 들떠 보인다.
+                baseline = title_top + get_ink(font)[1]
+                gc.DrawText(self.fit_text(gc, self.subtitle, room), sub_left,
+                            baseline - get_ink(sub_font)[1])
+
+
+class Panel:
+    '''이름 띠 하나와 그 아래 줄들을 한 판으로 묶는다. 위젯이 아니라 세로 사이저 하나다 —
+    페이지가 그 사이저를 단에 담는다. 접힘은 folds(접힌 판 키의 모음, 앱이 저장한다)에
+    적고 on_fold 로 알린다.
+
+    body 는 줄(창) 또는 줄을 담은 사이저의 나열이다. 판 모양(첫 줄 금·마지막 줄 모서리)을
+    정하는 것은 rows — 화면에 놓인 차례대로의 줄 창들이다.'''
+
+    def __init__(self, parent, theme, key, title, body, folds, on_fold, subtitle='', rows=None):
+        self.key = key
+        self.folds = folds
+        self.on_fold = on_fold
+        self.header = PanelHeader(parent, theme, title, subtitle, self.toggle)
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.sizer.Add(self.header, 0, wx.EXPAND)
+        for item in body:
+            self.sizer.Add(item, 0, wx.EXPAND)
+        self.sizer.AddSpacer(PANEL_GAP)
+        self.set_rows(rows if rows is not None else body)
+        self.apply_fold()
+
+    @property
+    def folded(self):
+        return self.key in self.folds
+
+    def set_rows(self, rows):
+        rows = list(rows)
+        for index, row in enumerate(rows):
+            first, last = index == 0, index == len(rows) - 1
+            if getattr(row, 'first', None) != first or getattr(row, 'last', None) != last:
+                row.first, row.last = first, last
+                row.Refresh()
+
+    def toggle(self):
+        if self.folded:
+            self.folds.discard(self.key)
+        else:
+            self.folds.add(self.key)
+        self.apply_fold()
+        if self.on_fold:
+            self.on_fold()
+
+    def apply_fold(self):
+        folded = self.folded
+        self.header.set_folded(folded)
+        # 맨 앞은 머리, 맨 뒤는 판 사이 틈이다. wx 의 항목 목록은 잘라 쓸 수 없어 list 로.
+        for item in list(self.sizer.GetChildren())[1:-1]:
+            item.Show(not folded)
+
+
+class CardBase(Pressable):
+    '''판 본체의 한 줄. 왼쪽에 제목·설명, 오른쪽 끝에 조작부. 반응하는 것은 조작부뿐이다
+    (get_control_rect). 조작부가 자리를 먼저 잡고 남는 왼쪽을 글자가 쓴다.'''
+
+    PADDING = PANEL_PAD
     # 제목이 조작부에 닿지 않게 두는 자리.
     LABEL_GAP = 12
+    # 제목 기준선에서 설명 대문자 윗줄까지.
+    LINE_GAP = 6
+    # 판 안에서의 자리. Panel.set_rows 가 정한다.
+    first = True
+    last = True
 
     def __init__(self, parent, theme, label, description, on_change=None):
         super().__init__(parent, theme, self.activate)
@@ -252,35 +501,55 @@ class CardBase(Pressable):
         self.SetMinSize(wx.Size(-1, CARD_HEIGHT))
 
     def activate(self):
-        '''카드를 눌렀을 때 값을 바꾸는 자리.'''
+        '''조작부를 눌렀을 때 하는 일.'''
 
     def notify(self):
         self.Refresh()
         if self.on_change:
             self.on_change()
 
+    def get_control_rect(self, width, height):
+        '''누를 자리. 기본은 없다.'''
+        return wx.Rect()
+
+    def get_button_rect(self, width, height, button_width):
+        '''오른쪽 끝, 세로 가운데의 단추 한 칸.'''
+        return wx.Rect(width - self.PADDING - button_width, (height - BUTTON_HEIGHT) // 2,
+                       button_width, BUTTON_HEIGHT)
+
+    def get_hit(self):
+        width, height = self.GetClientSize()
+        return self.get_control_rect(width, height)
+
     def draw(self, gc, width, height):
         theme = self.theme
-        fill = theme['face']
-        if self.pressed:
-            fill = shade(fill, 0.94)
-        elif self.hovered:
-            fill = shade(fill, 1.12)
-
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawRoundedRectangle(0, 0, width, height, CARD_RADIUS)
-        draw_card_rim(gc, theme['rim'], 0, 0, width, height)
-
+        draw_row_face(gc, theme, width, height, self.first, self.last)
         label_right = self.draw_control(gc, width, height) - self.LABEL_GAP
-        gc.SetFont(get_font(10), wx.Colour(theme['text']))
-        title_height = gc.GetTextExtent(self.label)[1]
-        top = (height - title_height - 15) / 2
-        gc.Clip(self.PADDING, 0, max(0, label_right - self.PADDING), height)
-        gc.DrawText(self.label, self.PADDING, top)
-        gc.SetFont(get_font(8), wx.Colour(theme['dim']))
-        gc.DrawText(self.description, self.PADDING, top + title_height + 1)
-        gc.ResetClip()
+        self.draw_label(gc, height, max(0, label_right - self.PADDING))
+
+    def draw_label(self, gc, height, limit):
+        '''제목과 설명 두 줄을 대문자 잉크로 재서 줄의 세로 가운데에 놓는다.'''
+        theme = self.theme
+        title_font, note_font = get_font(10), get_font(8)
+        title_ink, note_ink = get_ink(title_font), get_ink(note_font)
+        title_height = title_ink[1] - title_ink[0] + 1
+        note_height = note_ink[1] - note_ink[0] + 1
+        if self.description:
+            block = title_height + self.LINE_GAP + note_height
+        else:
+            block = title_height
+        top = (height - block) // 2
+        gc.SetFont(title_font, wx.Colour(theme['text']))
+        gc.DrawText(self.fit_text(gc, self.label, limit), self.PADDING, top - title_ink[0])
+        if self.description:
+            gc.SetFont(note_font, wx.Colour(theme['dim']))
+            gc.DrawText(self.fit_text(gc, self.description, limit), self.PADDING,
+                        top + title_height + self.LINE_GAP - note_ink[0])
+
+    def get_state(self):
+        if self.pressed:
+            return 'down'
+        return 'hover' if self.hovered else 'plain'
 
     def draw_control(self, gc, width, height):
         '''오른쪽 끝에서부터 조작부를 그리고 그 왼쪽 끝 x 를 돌려준다.'''
@@ -288,10 +557,9 @@ class CardBase(Pressable):
 
 
 class SettingCard(CardBase):
-    '''오른쪽 끝에 On/Off 토글을 둔 카드. 카드 어디를 눌러도 토글된다.'''
+    '''오른쪽 끝에 ON/OFF 글씨 단추를 둔 줄 (PyWinAudio 의 Switch). 켜지면 강조색으로 채운다.'''
 
-    TRACK_WIDTH = 38
-    TRACK_HEIGHT = 20
+    SWITCH_WIDTH = 48
 
     value = False
 
@@ -306,66 +574,22 @@ class SettingCard(CardBase):
         self.value = not self.value
         self.notify()
 
+    def get_control_rect(self, width, height):
+        return self.get_button_rect(width, height, self.SWITCH_WIDTH)
+
     def draw_control(self, gc, width, height):
-        theme = self.theme
-        switch_left = width - self.PADDING - self.TRACK_WIDTH
-        state = 'On' if self.value else 'Off'
-        gc.SetFont(get_font(9), wx.Colour(theme['dim']))
-        state_width, state_height = gc.GetTextExtent(state)[:2]
-        gc.DrawText(state, switch_left - state_width - 8, (height - state_height) / 2)
-        # 세로 자리는 반 칸 없이 딱 떨어져야 알약 위아래가 흐려지지 않는다.
-        self.draw_switch(gc, switch_left, round((height - self.TRACK_HEIGHT) / 2))
-        return switch_left - state_width - 8
-
-    def draw_switch(self, gc, left, top):
-        theme = self.theme
-        radius = self.TRACK_HEIGHT / 2
-        gc.SetPen(wx.TRANSPARENT_PEN)
-
-        # 선을 두르면 1px 획이 화소 경계에 반씩 걸려 아래쪽 곡선이 각져 보이고
-        # 핸들과도 반 칸 어긋난다. 채운 알약 위에 한 칸 작은 알약을 겹쳐 테를 만든다.
-        if self.value:
-            gc.SetBrush(wx.Brush(wx.Colour(theme['accent'])))
-            gc.FillPath(self.get_track(gc, left, top, 0))
-        else:
-            gc.SetBrush(wx.Brush(wx.Colour(theme['dim'])))
-            gc.FillPath(self.get_track(gc, left, top, 0))
-            gc.SetBrush(wx.Brush(wx.Colour(theme['bg'])))
-            gc.FillPath(self.get_track(gc, left, top, 1))
-
-        knob = radius - 4
-        x = left + (self.TRACK_WIDTH - radius if self.value else radius)
-        gc.SetBrush(wx.Brush(wx.Colour('#ffffff' if self.value else theme['text'])))
-        gc.DrawEllipse(x - knob, top + radius - knob, knob * 2, knob * 2)
-
-    def get_track(self, gc, left, top, inset):
-        '''반원 둘을 직선으로 이은 알약. 둥근 사각형은 반지름이 높이의 절반일 때
-        호와 직선이 만나는 자리가 각져 보인다.
-
-        밑동 좌우가 위보다 살짝 각져 보이는 것은 이 경로 탓이 아니다. 원 둘 +
-        네모로 다시 그려 봐도 화소가 한 점 다르지 않았다 — GDI+ 가 맨 윗줄과
-        맨 아랫줄의 안티에일리어싱을 다르게 얹는다(실측: 꽉 찬 구간이 위 18px,
-        아래 22px, 윤곽선 자체는 대칭). 모양을 바꿔서는 못 없앤다.'''
-        left, top = left + inset, top + inset
-        width, height = self.TRACK_WIDTH - inset * 2, self.TRACK_HEIGHT - inset * 2
-        radius = height / 2
-
-        path = gc.CreatePath()
-        path.MoveToPoint(left + radius, top)
-        path.AddLineToPoint(left + width - radius, top)
-        path.AddArc(left + width - radius, top + radius, radius,
-                    -math.pi / 2, math.pi / 2, True)
-        path.AddLineToPoint(left + radius, top + height)
-        path.AddArc(left + radius, top + radius, radius, math.pi / 2, -math.pi / 2, True)
-        path.CloseSubpath()
-        return path
+        rect = self.get_control_rect(width, height)
+        state = 'lit' if self.value else self.get_state()
+        if self.value and self.pressed:
+            state = 'down'
+        draw_button(gc, self.theme, rect, 'ON' if self.value else 'OFF', state)
+        return rect.x
 
 
 class LayoutCard(SettingCard):
-    '''끌어서 차례를 바꾸는 토글 카드 (사용량 페이지의 묶음 차례·숨김). 누르기만
-    하면 토글되고, 눌린 채로 몇 픽셀 움직이면 끌기가 된다. 끄는 동안의 자리
-    계산과 애니메이션은 부모가 한다 (`on_drag(card, phase, screen_y)`, phase 는
-    'start'·'move'·'drop').'''
+    '''끌어서 차례를 바꾸는 토글 줄 (사용량 페이지의 묶음 차례·숨김). 줄 어디서든 눌러
+    몇 픽셀 움직이면 끌기가 되고, 토글은 ON/OFF 단추로만 한다. 끄는 동안의 자리 계산과
+    애니메이션은 부모가 한다 (`on_drag(card, phase, screen_y)`, phase 는 'start'·'move'·'drop').'''
 
     GRIP = 14
     # 이만큼 움직여야 끌기로 본다. 손이 떨려 누른 것이 끌기가 되면 토글이 안 먹는다.
@@ -377,71 +601,77 @@ class LayoutCard(SettingCard):
         self.press_y = None
         self.dragging = False
         self.Bind(wx.EVT_MOTION, self.on_motion)
-        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_capture_lost)
-        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.update_cursor()
+
+    def update_cursor(self):
+        # 단추 위는 누르는 손, 나머지는 위아래로 끄는 손.
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND if self.hovered and not self.dragging
+                                 else wx.CURSOR_SIZENS))
+
+    def get_screen_y(self, event):
+        return self.ClientToScreen(event.GetPosition()).y
 
     def on_down(self, event):
-        self.press_y = wx.GetMousePosition().y
+        self.press_y = self.get_screen_y(event)
+        super().on_down(event)
         if not self.HasCapture():
             self.CaptureMouse()
-        super().on_down(event)
 
     def on_motion(self, event):
-        if self.press_y is None or not event.LeftIsDown():
-            event.Skip()
-            return
-        y = wx.GetMousePosition().y
-        if not self.dragging and abs(y - self.press_y) >= self.DRAG_SLOP:
-            self.dragging = True
-            self.pressed = False
-            self.SetCursor(wx.Cursor(wx.CURSOR_SIZENS))
-            if self.on_drag:
-                self.on_drag(self, 'start', self.press_y)
-        if self.dragging and self.on_drag:
-            self.on_drag(self, 'move', y)
+        if self.press_y is not None and event.LeftIsDown():
+            y = self.get_screen_y(event)
+            if not self.dragging and abs(y - self.press_y) >= self.DRAG_SLOP:
+                self.dragging = True
+                # 끌기가 되면 단추 누름은 없던 일이다.
+                self.holding = False
+                self.pressed = False
+                self.update_cursor()
+                self.Refresh()
+                if self.on_drag:
+                    self.on_drag(self, 'start', self.press_y)
+            if self.dragging:
+                if self.on_drag:
+                    self.on_drag(self, 'move', y)
+                return
+        event.Skip()
 
     def on_up(self, event):
-        if self.HasCapture():
-            self.ReleaseMouse()
         self.press_y = None
         if self.dragging:
-            self.finish_drag()
+            if self.HasCapture():
+                self.ReleaseMouse()
+            self.finish_drag(self.get_screen_y(event))
             return
         super().on_up(event)
 
-    def on_capture_lost(self, event):
+    def on_lost(self, event):
         self.press_y = None
+        super().on_lost(event)
         if self.dragging:
-            self.finish_drag()
+            self.finish_drag(wx.GetMousePosition().y)
 
-    def finish_drag(self):
+    def finish_drag(self, y):
         self.dragging = False
         self.pressed = False
-        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.update_cursor()
         self.Refresh()
         if self.on_drag:
-            self.on_drag(self, 'drop', wx.GetMousePosition().y)
-
-    def on_leave(self, event):
-        # 끄는 동안에는 카드가 마우스 밑에서 빠져나가도 눌린 상태를 지우지 않는다.
-        if self.dragging:
-            return
-        super().on_leave(event)
+            self.on_drag(self, 'drop', y)
 
     def draw(self, gc, width, height):
         super().draw(gc, width, height)
         if self.dragging:
-            # 들려 있는 카드는 테두리를 강조색으로 둘러 다른 카드와 갈라 보이게 한다.
-            draw_card_rim(gc, self.theme['accent'], 0, 0, width, height)
+            # 들려 있는 줄은 강조색 1 px 테두리로 다른 줄과 갈라 보이게 한다.
+            draw_frame(gc, self.theme['accent'], 0, 0, width, height)
 
     def draw_control(self, gc, width, height):
         theme = self.theme
         left = super().draw_control(gc, width, height)
-        # 손잡이: 점 두 줄 세 칸. 끌 수 있다는 표시일 뿐 누를 자리가 따로 있지는 않다.
-        grip_left = left - 12 - self.GRIP
+        # 끌 수 있다는 표시: 점 두 줄 세 칸. 단추와의 사이는 단추끼리의 사이를 세 번.
+        grip_left = left - BUTTON_GAP * 3 - self.GRIP
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(wx.Colour(theme['dim'])))
-        cy = height / 2
+        cy = height // 2
         for column in (0, 6):
             for row in (-5, 0, 5):
                 gc.DrawEllipse(grip_left + 4 + column - 1.25, cy + row - 1.25, 2.5, 2.5)
@@ -449,30 +679,18 @@ class LayoutCard(SettingCard):
 
 
 class ChoiceCard(CardBase):
-    '''고를 것이 몇 되지 않으면 목록을 펼칠 것 없이 칸을 나란히 붙인다. 토글과
-    달리 카드 바탕을 눌러서는 값이 바뀌지 않는다 — 어느 칸을 고르는지 눌러서
-    알릴 길이 없기 때문이다.'''
+    '''고를 것이 몇 되지 않으면 칸을 나란히 붙인다 (PyWinAudio 의 Segment). 칸 폭은 모두
+    같고 고른 칸만 강조색으로 채운다. 누른 칸에서 놓아야 고른다.'''
 
-    SEGMENT_HEIGHT = 26
-    SEGMENT_PADDING = 14
-    SEGMENT_RADIUS = 5
-    # 칸끼리 붙여 두면 어디까지가 한 칸인지 눈에 안 들어온다. 사이를 띄운다.
-    SEGMENT_GAP = 6
-
-    # 마우스가 얹힌 칸. 카드 밖으로 나가면 지운다.
     marked = -1
+    down_index = -1
 
     def __init__(self, parent, theme, label, description, options, on_change=None):
         super().__init__(parent, theme, label, description, on_change)
         # (저장할 값, 보일 이름) 의 나열.
         self.options = options
         self.value = options[0][0]
-        # 칸 폭은 글꼴이 정하니 한 번만 재 둔다. 누른 자리를 따지는 데도 쓴다.
-        dc = wx.MemoryDC(wx.Bitmap(1, 1))
-        dc.SetFont(get_font(9))
-        self.segment = (max(dc.GetTextExtent(name)[0] for _, name in options) +
-                        self.SEGMENT_PADDING * 2)
-        self.Bind(wx.EVT_MOTION, self.on_motion)
+        self.segment = max(get_button_width(name) for _, name in options)
 
     def GetValue(self):
         return self.value
@@ -482,97 +700,85 @@ class ChoiceCard(CardBase):
             self.value = value
             self.Refresh()
 
-    def get_stride(self):
-        return self.segment + self.SEGMENT_GAP
-
-    def get_left(self, width):
-        return (width - self.PADDING - self.get_stride() * len(self.options) +
-                self.SEGMENT_GAP)
+    def get_cell(self, index, width, height):
+        count = len(self.options)
+        left = width - self.PADDING - self.segment * count - BUTTON_GAP * (count - 1)
+        return wx.Rect(left + (self.segment + BUTTON_GAP) * index, (height - BUTTON_HEIGHT) // 2,
+                       self.segment, BUTTON_HEIGHT)
 
     def get_index(self, position):
         width, height = self.GetClientSize()
-        left = self.get_left(width)
-        top = (height - self.SEGMENT_HEIGHT) / 2
-        if not top <= position.y < top + self.SEGMENT_HEIGHT:
-            return -1
-        if not left <= position.x < width - self.PADDING:
-            return -1
+        for index in range(len(self.options)):
+            if self.get_cell(index, width, height).Contains(position):
+                return index
         # 칸 사이 빈자리는 어느 쪽도 아니다. 넘겨짚어 고르면 눌린 적 없는 값이 선다.
-        index, offset = divmod(int(position.x - left), self.get_stride())
-        return index if offset < self.segment else -1
+        return -1
 
-    def on_motion(self, event):
-        self.mark(self.get_index(event.GetPosition()))
-        event.Skip()
+    def hits(self, position):
+        return self.get_index(position) >= 0
 
-    def on_leave(self, event):
-        self.mark(-1)
-        super().on_leave(event)
-
-    def mark(self, index):
+    def on_track(self, event):
+        index = self.get_index(event.GetPosition())
         if index != self.marked:
             self.marked = index
             self.Refresh()
+        super().on_track(event)
+
+    def on_down(self, event):
+        self.down_index = self.get_index(event.GetPosition())
+        super().on_down(event)
+
+    def on_leave(self, event):
+        if self.marked != -1:
+            self.marked = -1
+            self.Refresh()
+        super().on_leave(event)
 
     def activate(self):
-        index = self.get_index(self.ScreenToClient(wx.GetMousePosition()))
-        if index < 0 or self.options[index][0] == self.value:
+        index = self.get_index(self.up_position)
+        if index < 0 or index != self.down_index or self.options[index][0] == self.value:
             return
         self.value = self.options[index][0]
         self.notify()
 
     def draw_control(self, gc, width, height):
-        theme = self.theme
-        left = self.get_left(width)
-        top = round((height - self.SEGMENT_HEIGHT) / 2)
-        gc.SetPen(wx.TRANSPARENT_PEN)
-
         for index, (value, name) in enumerate(self.options):
-            x = left + self.get_stride() * index
-            chosen = value == self.value
-            if chosen:
-                fill = wx.Colour(theme['accent'])
+            if value == self.value:
+                state = 'lit'
+            elif self.pressed and index == self.down_index and index == self.marked:
+                state = 'down'
             elif index == self.marked:
-                fill = mix(theme['control'], theme['text'], 0.14)
+                state = 'hover'
             else:
-                fill = wx.Colour(theme['control'])
-            gc.SetBrush(wx.Brush(fill))
-            gc.DrawRoundedRectangle(x, top, self.segment, self.SEGMENT_HEIGHT,
-                                    self.SEGMENT_RADIUS)
-            gc.SetFont(get_font(9), wx.Colour('#ffffff' if chosen else theme['dim']))
-            text_width, text_height = gc.GetTextExtent(name)[:2]
-            gc.DrawText(name, x + (self.segment - text_width) / 2,
-                        top + (self.SEGMENT_HEIGHT - text_height) / 2)
-        return left
+                state = 'plain'
+            draw_button(gc, self.theme, self.get_cell(index, width, height), name, state)
+        return self.get_cell(0, width, height).x
 
 
 class SliderCard(CardBase):
-    '''오른쪽 끝에 값과 track 을 둔 카드. 눌러서 끌면 값이 따라온다.
+    '''오른쪽 끝에 track 과 값을 둔 줄. 손잡이는 PyWinAudio 그래픽 EQ 페이더의 납작한
+    손잡이를 눕힌 것이다. track 을 누르면 그 자리로, 손잡이를 잡으면 잡은 자리 그대로 따라온다.
+    Shift 를 누른 채 끌면 열 배 곱게, 두 번 누르면 기본값.
 
-    토글과 달리 카드 바탕을 눌러서는 값이 바뀌지 않는다 — 어디를 눌렀는지가
-    곧 값이라, 글자 자리를 눌렀다고 값을 옮기면 넘겨짚는 셈이 된다.'''
+    track 의 자리와 폭은 모든 줄이 같다 — 값 칸을 줄마다 재면 자릿수에 따라 track 이
+    들쭉날쭉해진다(사용자). 다섯 자리 숫자 폭으로 모두 맞춘다.'''
 
     TRACK_WIDTH = 116
-    TRACK_HEIGHT = 4
-    KNOB = 7
-    # 값이 흔들려도 track 이 밀리지 않도록 가장 넓은 글자만큼 미리 떼어 둔다.
-    # ★손잡이는 끝값에서 track 밖으로 KNOB 만큼 더 나간다. 그만큼을 빼고 남는
-    # 자리가 글자와의 사이가 되므로, 이 값이 KNOB 보다 넉넉히 커야 안 닿는다.
-    VALUE_GAP = 18
+    TRACK_HEIGHT = 2
+    THUMB = (8, 14)
+    VALUE_SIZE = 9
+    # ★손잡이는 끝값에서 track 밖으로 반 폭만큼 더 나간다. 값 칸과의 사이가 그보다 넉넉해야 한다.
+    VALUE_GAP = 14
+    FINE = 10.0
 
-    def __init__(self, parent, theme, label, description, bounds, on_change=None):
+    def __init__(self, parent, theme, label, description, bounds, on_change=None, default=None):
         super().__init__(parent, theme, label, description, on_change)
         self.low, self.high, self.step, self.digits = bounds
+        self.default = default
         self.value = self.low
         self.dragging = False
-        # 값 칸의 폭은 가장 긴 표기가 정한다. 끝값 둘만 재면 충분하다.
-        dc = wx.MemoryDC(wx.Bitmap(1, 1))
-        dc.SetFont(get_font(9))
-        self.value_width = max(dc.GetTextExtent(self.format(bound))[0]
-                               for bound in (self.low, self.high))
-        self.Bind(wx.EVT_MOTION, self.on_motion)
-        # 잡은 마우스를 놓친 채로 창이 사라지면 소멸자에서 assertion 이 뜬다.
-        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_capture_lost)
+        self.grab = None
+        self.value_width = get_text_width(get_font(self.VALUE_SIZE), '00000')
 
     def format(self, value):
         if self.digits == 0:
@@ -595,11 +801,24 @@ class SliderCard(CardBase):
     def get_track_left(self, width):
         return width - self.PADDING - self.value_width - self.VALUE_GAP - self.TRACK_WIDTH
 
-    def set_from_x(self, x, width):
-        ratio = min(1.0, max(0.0, (x - self.get_track_left(width)) / self.TRACK_WIDTH))
-        # 눈금에 맞춰 떨어뜨린다. 끌면서 나오는 값이 저장될 값과 같아야 한다.
-        stepped = self.low + round(ratio * (self.high - self.low) / self.step) * self.step
+    def get_knob_x(self, width):
+        span = (self.value - self.low) / float(self.high - self.low)
+        return self.get_track_left(width) + self.TRACK_WIDTH * span
+
+    def get_control_rect(self, width, height):
+        thumb = self.THUMB[0]
+        return wx.Rect(self.get_track_left(width) - thumb, (height - BUTTON_HEIGHT) // 2,
+                       self.TRACK_WIDTH + thumb * 2, BUTTON_HEIGHT)
+
+    def update_cursor(self):
+        self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE if self.hovered or self.dragging
+                                 else wx.CURSOR_ARROW))
+
+    def put(self, value):
+        stepped = self.low + round((value - self.low) / self.step) * self.step
         value = min(self.high, max(self.low, stepped))
+        if self.digits:
+            value = round(value, self.digits)
         if value != self.value:
             self.value = value
             self.notify()
@@ -607,91 +826,113 @@ class SliderCard(CardBase):
             self.Refresh()
 
     def on_down(self, event):
-        width = self.GetClientSize()[0]
         position = event.GetPosition()
-        # track 에서 한참 벗어난 자리는 값을 옮기려던 손이 아니다.
-        if position.x < self.get_track_left(width) - self.KNOB:
+        if not self.hits(position):
+            event.Skip()
             return
+        width = self.GetClientSize()[0]
+        knob = self.get_knob_x(width)
+        if abs(position.x - knob) > self.THUMB[0] / 2 + 2:
+            # track 을 누르면 손잡이가 그 자리로 온다. 그다음부터는 끌기다.
+            ratio = (position.x - self.get_track_left(width)) / float(self.TRACK_WIDTH)
+            self.put(self.low + min(1.0, max(0.0, ratio)) * (self.high - self.low))
+        self.grab = (position.x, self.value, event.ShiftDown())
         self.dragging = True
         self.pressed = True
-        self.CaptureMouse()
-        self.set_from_x(position.x, width)
+        if not self.HasCapture():
+            self.CaptureMouse()
+        self.update_cursor()
+        self.Refresh()
 
-    def on_motion(self, event):
-        if self.dragging:
-            self.set_from_x(event.GetPosition().x, self.GetClientSize()[0])
-        event.Skip()
+    def on_track(self, event):
+        if self.dragging and self.grab:
+            x, value, fine = self.grab
+            shift = event.ShiftDown()
+            if shift != fine:
+                # 곱게 끌기를 켜고 끌 때 손잡이가 튀지 않게 그 자리에서 다시 잡는다.
+                self.grab = (event.GetPosition().x, self.value, shift)
+                return
+            per_pixel = (self.high - self.low) / float(self.TRACK_WIDTH)
+            if shift:
+                per_pixel /= self.FINE
+            self.put(value + (event.GetPosition().x - x) * per_pixel)
+            return
+        super().on_track(event)
 
     def on_up(self, event):
         self.release()
+        self.set_hovered(self.hits(event.GetPosition()))
+
+    def on_dclick(self, event):
+        if not self.hits(event.GetPosition()):
+            event.Skip()
+            return
+        self.release()
+        if self.default is not None:
+            self.put(self.default)
+
+    def on_lost(self, event):
+        self.dragging = False
+        self.pressed = False
+        self.grab = None
+        self.update_cursor()
+        self.Refresh()
 
     def on_leave(self, event):
-        # 끄는 중이라면 캡처가 살아 있어 여기 오지 않는다. 그냥 hover 만 지운다.
+        # 끄는 중이라면 캡처가 살아 있어 손을 놓을 때까지 그대로 둔다.
         if not self.dragging:
             super().on_leave(event)
 
-    def on_capture_lost(self, event):
-        self.dragging = False
-        self.pressed = False
-        self.Refresh()
-
     def release(self):
-        if not self.dragging:
-            return
-        self.dragging = False
-        self.pressed = False
         if self.HasCapture():
             self.ReleaseMouse()
+        self.dragging = False
+        self.pressed = False
+        self.grab = None
+        self.update_cursor()
         self.Refresh()
 
     def draw_control(self, gc, width, height):
         theme = self.theme
         left = self.get_track_left(width)
-        middle = round(height / 2)
-        span = (self.value - self.low) / float(self.high - self.low)
-        knob_x = left + self.TRACK_WIDTH * span
+        middle = height // 2
+        knob_x = round(self.get_knob_x(width))
 
-        gc.SetFont(get_font(9), wx.Colour(theme['text']))
-        text = self.format(self.value)
-        text_width, text_height = gc.GetTextExtent(text)[:2]
-        # 값은 오른쪽 맞춤이다. 자릿수가 바뀌어도 track 이 안 흔들린다.
-        gc.DrawText(text, width - self.PADDING - text_width, (height - text_height) / 2)
+        value_rect = wx.Rect(width - self.PADDING - self.value_width, 0, self.value_width, height)
+        draw_text_in(gc, self.format(self.value), value_rect, get_font(self.VALUE_SIZE),
+                     theme['text'], align='right')
 
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        top = middle - self.TRACK_HEIGHT / 2
-        gc.SetBrush(wx.Brush(wx.Colour(theme['control'])))
-        gc.DrawRoundedRectangle(left, top, self.TRACK_WIDTH, self.TRACK_HEIGHT,
-                                self.TRACK_HEIGHT / 2)
-        if span > 0:
-            gc.SetBrush(wx.Brush(wx.Colour(theme['accent'])))
-            gc.DrawRoundedRectangle(left, top, max(self.TRACK_HEIGHT, knob_x - left),
-                                    self.TRACK_HEIGHT, self.TRACK_HEIGHT / 2)
+        top = middle - self.TRACK_HEIGHT // 2
+        fill_rect(gc, theme['track'], left, top, self.TRACK_WIDTH, self.TRACK_HEIGHT, 1)
+        if knob_x > left:
+            fill_rect(gc, theme['accent'], left, top, knob_x - left, self.TRACK_HEIGHT, 1)
 
-        knob = self.KNOB + (1 if self.hovered or self.dragging else 0)
-        gc.SetBrush(wx.Brush(wx.Colour(theme['accent'])))
-        gc.DrawEllipse(knob_x - knob, middle - knob, knob * 2, knob * 2)
-        gc.SetBrush(wx.Brush(wx.Colour(theme['face'])))
-        gc.DrawEllipse(knob_x - knob + 2, middle - knob + 2,
-                       (knob - 2) * 2, (knob - 2) * 2)
-        return left
+        thumb_width, thumb_height = self.THUMB
+        lit = self.hovered or self.dragging
+        fill_rect(gc, theme['thumb_hover'] if lit else theme['thumb'],
+                  knob_x - thumb_width // 2, middle - thumb_height // 2,
+                  thumb_width, thumb_height, 1.5)
+        fill_rect(gc, theme['thumb_line'], knob_x, middle - thumb_height // 2 + 2,
+                  1, thumb_height - 4)
+        return left - thumb_width // 2
 
 
-class ChipGrid(Canvas):
-    '''고를 것이 스무 남짓이라 카드 한 줄에 칸을 늘어세울 수 없다. 줄을 접어
-    격자로 늘어놓고 하나만 고른다.
+class ChipGrid(Pressable):
+    '''고를 것이 스무 남짓이라 한 줄에 칸을 늘어세울 수 없다. 줄을 접어 격자로 늘어놓고
+    하나만 고른다. 칸은 다른 단추와 같은 모양·크기이고, 판 본체의 한 줄로 놓인다.
 
     높이가 폭에서 나오므로 접히는 줄 수가 바뀔 때만 최소 크기를 다시 준다 —
     줄 수는 띄엄띄엄한 값이라 되먹임이 생기지 않는다.'''
 
-    CHIP_HEIGHT = 26
-    CHIP_GAP = 6
-    RADIUS = 5
-    PADDING = 12
+    PADDING = PANEL_PAD
 
     marked = -1
+    down_index = -1
+    first = True
+    last = True
 
     def __init__(self, parent, theme, options, on_change=None, on_layout=None):
-        super().__init__(parent, theme)
+        super().__init__(parent, theme, self.choose)
         self.on_change = on_change
         # 줄 수가 바뀌면 담고 있는 쪽의 높이도 달라진다. 굴리는 자리에 담겼다면
         # 그쪽이 자기 크기를 다시 잡아야 한다.
@@ -699,17 +940,11 @@ class ChipGrid(Canvas):
         self.value = ''
         self.chip = 44
         self.set_options(options)
-        self.Bind(wx.EVT_LEFT_DOWN, self.on_down)
-        self.Bind(wx.EVT_MOTION, self.on_motion)
-        self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_SIZE, self.on_size)
 
     def set_options(self, options):
         self.options = list(options)
-        dc = wx.MemoryDC(wx.Bitmap(1, 1))
-        dc.SetFont(get_font(9))
-        widest = max([dc.GetTextExtent(name)[0] for name in self.options] or [0])
-        self.chip = widest + self.PADDING * 2
+        self.chip = max([get_button_width(name) for name in self.options] or [44])
         self.relayout()
 
     def GetValue(self):
@@ -720,8 +955,8 @@ class ChipGrid(Canvas):
         self.Refresh()
 
     def get_columns(self, width):
-        usable = width - self.PADDING * 2 + self.CHIP_GAP
-        return max(1, int(usable // (self.chip + self.CHIP_GAP)))
+        usable = width - self.PADDING * 2 + BUTTON_GAP
+        return max(1, int(usable // (self.chip + BUTTON_GAP)))
 
     def get_rows(self, width):
         columns = self.get_columns(width)
@@ -729,8 +964,7 @@ class ChipGrid(Canvas):
 
     def get_height(self, width):
         rows = self.get_rows(width)
-        return (self.PADDING * 2 + rows * self.CHIP_HEIGHT +
-                (rows - 1) * self.CHIP_GAP)
+        return self.PADDING * 2 + rows * BUTTON_HEIGHT + (rows - 1) * BUTTON_GAP
 
     def relayout(self):
         width = self.GetClientSize()[0]
@@ -751,9 +985,9 @@ class ChipGrid(Canvas):
     def get_chip_rect(self, index, width):
         columns = self.get_columns(width)
         row, column = divmod(index, columns)
-        return wx.Rect(self.PADDING + column * (self.chip + self.CHIP_GAP),
-                       self.PADDING + row * (self.CHIP_HEIGHT + self.CHIP_GAP),
-                       self.chip, self.CHIP_HEIGHT)
+        return wx.Rect(self.PADDING + column * (self.chip + BUTTON_GAP),
+                       self.PADDING + row * (BUTTON_HEIGHT + BUTTON_GAP),
+                       self.chip, BUTTON_HEIGHT)
 
     def hit_test(self, position):
         width = self.GetClientSize()[0]
@@ -762,76 +996,78 @@ class ChipGrid(Canvas):
                 return index
         return -1
 
-    def on_down(self, event):
+    def hits(self, position):
+        return self.hit_test(position) >= 0
+
+    def on_track(self, event):
         index = self.hit_test(event.GetPosition())
-        if index < 0 or self.options[index] == self.value:
+        if index != self.marked:
+            self.marked = index
+            self.Refresh()
+        super().on_track(event)
+
+    def on_down(self, event):
+        self.down_index = self.hit_test(event.GetPosition())
+        super().on_down(event)
+
+    def on_leave(self, event):
+        if self.marked != -1:
+            self.marked = -1
+            self.Refresh()
+        super().on_leave(event)
+
+    def choose(self):
+        index = self.hit_test(self.up_position)
+        if index < 0 or index != self.down_index or self.options[index] == self.value:
             return
         self.value = self.options[index]
         self.Refresh()
         if self.on_change:
             self.on_change()
 
-    def on_motion(self, event):
-        index = self.hit_test(event.GetPosition())
-        if index != self.marked:
-            self.marked = index
-            self.Refresh()
-        event.Skip()
-
-    def on_leave(self, event):
-        if self.marked != -1:
-            self.marked = -1
-            self.Refresh()
-
     def draw(self, gc, width, height):
-        theme = self.theme
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(theme['face'])))
-        gc.DrawRoundedRectangle(0, 0, width, height, CARD_RADIUS)
-        draw_card_rim(gc, theme['rim'], 0, 0, width, height)
-
+        draw_row_face(gc, self.theme, width, height, self.first, self.last)
         for index, name in enumerate(self.options):
-            rect = self.get_chip_rect(index, width)
-            chosen = name == self.value
-            if chosen:
-                fill = wx.Colour(theme['accent'])
+            if name == self.value:
+                state = 'lit'
+            elif self.pressed and index == self.down_index and index == self.marked:
+                state = 'down'
             elif index == self.marked:
-                fill = mix(theme['control'], theme['text'], 0.14)
+                state = 'hover'
             else:
-                fill = wx.Colour(theme['control'])
-            gc.SetPen(wx.TRANSPARENT_PEN)
-            gc.SetBrush(wx.Brush(fill))
-            gc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height,
-                                    self.RADIUS)
-            gc.SetFont(get_font(9), wx.Colour('#ffffff' if chosen else theme['dim']))
-            text_width, text_height = gc.GetTextExtent(name)[:2]
-            gc.DrawText(name, rect.x + (rect.width - text_width) / 2,
-                        rect.y + (rect.height - text_height) / 2)
+                state = 'plain'
+            draw_button(gc, self.theme, self.get_chip_rect(index, width), name, state)
 
 
 class ActionCard(CardBase):
-    '''오른쪽 끝에 누름 단추 하나를 둔 카드. 값이 아니라 일을 시킨다.'''
+    '''오른쪽 끝에 글자 단추 하나를 둔 줄. 값이 아니라 일을 시킨다. 한 번 더 누르면 되돌릴 수
+    없는 일이 나는 동안(warn)은 테두리와 글씨가 주황이다.'''
 
-    BUTTON_HEIGHT = 26
-    BUTTON_PADDING = 16
-    RADIUS = 5
-
-    # 'warn' 이면 단추를 주황으로 칠한다. 한 번 더 누르면 되돌릴 수 없는 일이 난다는 표시.
     tone = 'plain'
 
     def __init__(self, parent, theme, label, description, caption, on_click=None):
         super().__init__(parent, theme, label, description)
         self.action = on_click
         self.caption = None
+        self.captions = [caption]
         self.set_caption(caption)
 
     def set_caption(self, caption):
+        '''글씨가 바뀌어도(Reset index → Confirm) 단추 폭은 그대로다. 지금까지 쓴 글씨 가운데
+        가장 긴 것에 맞춘다 — 누를 때마다 단추가 줄었다 늘었다 하면 손이 놓친다.'''
+        if caption not in self.captions:
+            self.captions.append(caption)
+        self.button = max(get_button_width(text) for text in self.captions)
         if caption != self.caption:
             self.caption = caption
-            dc = wx.MemoryDC(wx.Bitmap(1, 1))
-            dc.SetFont(get_font(9))
-            self.button = dc.GetTextExtent(caption)[0] + self.BUTTON_PADDING * 2
             self.Refresh()
+
+    def set_captions(self, *captions):
+        '''미리 쓸 글씨를 모두 알려 둔다. 처음부터 그 폭으로 선다.'''
+        for caption in captions:
+            if caption not in self.captions:
+                self.captions.append(caption)
+        self.set_caption(self.caption)
 
     def set_description(self, description):
         if description != self.description:
@@ -847,33 +1083,24 @@ class ActionCard(CardBase):
         if self.action:
             self.action()
 
+    def get_control_rect(self, width, height):
+        return self.get_button_rect(width, height, self.button)
+
     def draw_control(self, gc, width, height):
-        theme = self.theme
-        left = width - self.PADDING - self.button
-        top = round((height - self.BUTTON_HEIGHT) / 2)
-
-        fill = theme['warn'] if self.tone == 'warn' else theme['accent']
-        if self.pressed:
-            fill = shade(fill, 0.85)
-        elif self.hovered:
-            fill = shade(fill, 1.16)
-
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawRoundedRectangle(left, top, self.button, self.BUTTON_HEIGHT, self.RADIUS)
-        gc.SetFont(get_font(9), wx.Colour('#ffffff'))
-        text_width, text_height = gc.GetTextExtent(self.caption)[:2]
-        gc.DrawText(self.caption, left + (self.button - text_width) / 2,
-                    top + (self.BUTTON_HEIGHT - text_height) / 2)
-        return left
+        rect = self.get_control_rect(width, height)
+        draw_button(gc, self.theme, rect, self.caption, self.get_state(),
+                    'warn' if self.tone == 'warn' else None)
+        return rect.x
 
 
 class ScrollBar(Canvas):
-    '''실제로 움직일 때만 잠깐 뜨는 가는 막대. 카드 바깥 여백 위에 얹히므로
+    '''실제로 움직일 때만 잠깐 뜨는 가는 막대. 판 바깥 여백 위에 얹히므로
     바탕은 페이지 색 그대로 칠하면 된다.'''
 
     WIDTH = 4
-    INSET = 3
+    # 막대 자리(WIDTH + INSET * 2)는 판 페이지의 오른쪽 여백(PANEL_MARGIN) 안에 든다.
+    # 바탕을 칠하는 창이라 이보다 넓으면 판 오른쪽 끝을 덮는다.
+    INSET = 2
     RADIUS = 2
     HOLD = 700
     # 사라지는 데 걸리는 시간. 프레임 수가 아니라 시각으로 잰다 — 타이머가 밀려도
@@ -974,19 +1201,36 @@ class ScrollArea(wx.Panel):
 
     groups = None
     columns = 0
+    # 단과 단 사이. 판을 쌓는 페이지(set_panels)만 둔다. 옛 카드 페이지는 카드가 제 여백을 가진다.
+    column_gap = 0
     # ★페이지가 'wide' 라는 이름을 따로 쓸 수 있다 (설정의 Wide layout 카드). 겹치지 않게.
     wide_columns = True
 
-    def set_groups(self, top, groups):
-        '''묶음(제목+카드를 담은 세로 사이저)들을 넘긴다. 폭에 따라 단에 나눠 담는다.'''
+    def set_groups(self, top, groups, side=0, bottom=0):
+        '''묶음(세로 사이저)들을 넘긴다. 폭에 따라 단에 나눠 담는다. side 는 창 가장자리와
+        단 사이 여백, bottom 은 마지막 묶음 아래에 더 둘 자리다.'''
         self.groups = list(groups)
         self.root = wx.BoxSizer(wx.VERTICAL)
         self.root.AddSpacer(top)
         self.row = wx.BoxSizer(wx.HORIZONTAL)
-        self.root.Add(self.row, 0, wx.EXPAND)
+        self.root.Add(self.row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, side)
+        if bottom:
+            self.root.AddSpacer(bottom)
         self.content.SetSizer(self.root)
         self.columns = 0
         self.arrange()
+
+    def set_panels(self, panels):
+        '''PyWinAudio 랙처럼 판을 쌓는다. 창 가장자리와 단 사이는 PANEL_MARGIN, 판과 판
+        사이와 단과 단 사이는 PANEL_GAP. 판 사이 틈은 판이 제 아래에 둔다.'''
+        self.column_gap = PANEL_GAP
+        self.set_groups(PANEL_MARGIN, [panel.sizer for panel in panels], PANEL_MARGIN,
+                        PANEL_MARGIN - PANEL_GAP)
+
+    def relayout_panels(self):
+        '''판을 접고 펴면 묶음 키가 바뀐다. 단 나누기부터 다시 한다.'''
+        self.content.Layout()
+        self.arrange(force=True)
 
     def set_wide(self, wide):
         if wide != self.wide_columns:
@@ -1063,7 +1307,9 @@ class ScrollArea(wx.Panel):
                     column.Detach(group)
         self.row.Clear(delete_windows=False)
         columns = []
-        for _ in range(count):
+        for index in range(count):
+            if index and self.column_gap:
+                self.row.AddSpacer(self.column_gap)
             column = wx.BoxSizer(wx.VERTICAL)
             self.row.Add(column, 1, wx.EXPAND)
             columns.append(column)

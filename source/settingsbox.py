@@ -18,19 +18,10 @@ import wx
 from controls import ActionCard
 from controls import ChoiceCard
 from controls import LayoutCard
+from controls import Panel
 from controls import ScrollArea
 from controls import SettingCard
 from controls import SliderCard
-from utilities import get_font
-
-
-MARGIN = 16
-# 타이틀바 바로 아래. 옆 여백보다 좁게 둔다.
-TOP_MARGIN = 8
-TITLE_INSET = 3
-TITLE_GAP = 8
-CARD_GAP = 4
-GROUP_GAP = 14
 
 AGENTS = (('claude', 'Claude', 'Count Claude Code usage'),
           ('codex', 'Codex', 'Count Codex usage'),
@@ -54,11 +45,14 @@ REINDEX_CONFIRM_MS = 6000
 
 class SettingsBox(ScrollArea):
 
-    def __init__(self, parent, theme, settings, on_change, actions=None):
+    def __init__(self, parent, theme, settings, on_change, actions=None, folds=None,
+                 on_fold=None):
         super().__init__(parent, theme)
         self.on_change = on_change
         self.actions = actions or {}
-        self.labels = []
+        # 접힌 판의 키. 앱이 TTS 페이지와 함께 쥐고 저장한다.
+        self.folds = folds if folds is not None else set()
+        self.on_folds = on_fold
         board = self.content
 
         def toggle(label, description):
@@ -76,12 +70,13 @@ class SettingsBox(ScrollArea):
 
         self.currency = ChoiceCard(board, theme, 'Currency', 'Money on the usage page',
                                    CURRENCIES, on_change)
+        # 두 번 누르면 돌아가는 값은 처음 설정의 기본값(load 와 같은 값)이다.
         self.krw = SliderCard(board, theme, 'KRW per USD', 'Exchange rate for KRW',
-                              (900, 2000, 10, 0), on_change)
+                              (900, 2000, 10, 0), on_change, default=1380)
         self.cny = SliderCard(board, theme, 'CNY per USD', 'Exchange rate for CNY',
-                              (5, 10, 0.05, 2), on_change)
+                              (5, 10, 0.05, 2), on_change, default=7.2)
 
-        self.layout = {key: LayoutCard(board, theme, label, 'Drag to reorder · click to show or hide',
+        self.layout = {key: LayoutCard(board, theme, label, 'Drag to reorder',
                                        on_change, self.on_drag)
                        for key, label in SECTIONS}
         self.drag = None
@@ -98,6 +93,7 @@ class SettingsBox(ScrollArea):
                                  lambda: self.run('show_projects'))
         self.reindex = ActionCard(board, theme, 'Usage history', REINDEX_NOTE, 'Reset index',
                                   self.on_reindex)
+        self.reindex.set_captions('Confirm')
         self.reindex_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, lambda event: self.disarm_reindex(), self.reindex_timer)
 
@@ -133,55 +129,47 @@ class SettingsBox(ScrollArea):
         self.projects.Refresh()
         self.hidden.Refresh()
 
-    def add_group(self, title, cards):
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        self.add_title(sizer, title)
-        self.add_cards(sizer, cards)
-        return sizer
-
-    def add_title(self, sizer, text):
-        label = wx.StaticText(self.content, label=text)
-        label.SetFont(get_font(10, bold=True))
-        self.labels.append(label)
-        sizer.Add(label, 0, wx.LEFT, MARGIN + TITLE_INSET)
-        sizer.AddSpacer(TITLE_GAP)
-
-    def add_cards(self, sizer, cards):
-        for index, card in enumerate(cards):
-            if index:
-                sizer.AddSpacer(CARD_GAP)
-            sizer.Add(card, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-        sizer.AddSpacer(GROUP_GAP)
+    def add_panel(self, key, title, body, rows=None):
+        return Panel(self.content, self.theme, 'settings.' + key, title, body, self.folds,
+                     self.on_fold, rows=rows)
 
     def build(self):
-        groups = [self.add_group(title, cards) for title, cards in (
-            ('Window', (self.ontop,)),
-            ('Appearance', (self.theme_choice, self.wide)),
-            ('Agents', tuple(self.agents.values())),
-            ('Widget', (self.widget,)),
-            ('Currency', (self.currency, self.krw, self.cny)),
+        panels = [self.add_panel(key, title, cards) for key, title, cards in (
+            ('window', 'Window', (self.ontop,)),
+            ('appearance', 'Appearance', (self.theme_choice, self.wide)),
+            ('agents', 'Agents', tuple(self.agents.values())),
+            ('widget', 'Widget', (self.widget,)),
+            ('currency', 'Currency', (self.currency, self.krw, self.cny)),
         )]
 
-        layout = wx.BoxSizer(wx.VERTICAL)
-        self.add_title(layout, 'Main layout')
+        # 끌어서 차례를 바꾸는 줄은 따로 사이저에 담아 차례가 바뀔 때마다 다시 채운다.
         self.layout_sizer = wx.BoxSizer(wx.VERTICAL)
-        layout.Add(self.layout_sizer, 0, wx.EXPAND)
+        self.layout_panel = self.add_panel('layout', 'Main layout',
+                                           (self.layout_sizer, self.reset_layout),
+                                           rows=self.get_layout_rows())
+        panels.append(self.layout_panel)
         self.fill_layout()
-        layout.AddSpacer(CARD_GAP)
-        self.add_cards(layout, (self.reset_layout,))
-        groups.append(layout)
 
-        groups.append(self.add_group('Data', (self.projects, self.hidden, self.reindex)))
-        # 넓은 창에서는 묶음을 여러 단으로 편다 (Wide layout).
-        self.set_groups(TOP_MARGIN, groups)
+        panels.append(self.add_panel('data', 'Data', (self.projects, self.hidden, self.reindex)))
+        # 넓은 창에서는 판을 여러 단으로 편다 (Wide layout).
+        self.set_panels(panels)
+
+    def on_fold(self):
+        self.relayout_panels()
+        if self.on_folds:
+            self.on_folds()
+
+    def get_layout_rows(self):
+        return [self.layout[key] for key in self.order] + [self.reset_layout]
 
     def fill_layout(self):
-        # Clear 는 사이저 항목만 떼고 카드는 살려 둔다.
+        # Clear 는 사이저 항목만 떼고 줄은 살려 둔다.
         self.layout_sizer.Clear()
-        for index, key in enumerate(self.order):
-            if index:
-                self.layout_sizer.AddSpacer(CARD_GAP)
-            self.layout_sizer.Add(self.layout[key], 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
+        for key in self.order:
+            self.layout_sizer.Add(self.layout[key], 0, wx.EXPAND)
+        self.layout_panel.set_rows(self.get_layout_rows())
+        # 접힌 판이면 새로 담은 줄도 숨긴 채로 둔다.
+        self.layout_panel.apply_fold()
 
     def relayout(self):
         self.content.Layout()
@@ -240,6 +228,8 @@ class SettingsBox(ScrollArea):
                 else:
                     settled = False
             self.layout[name].SetPosition(wx.Point(drag['x'], int(round(drag['y'][name]))))
+        # 맨 위로 온 줄은 위 금을 거둔다. 띠 아래 금과 겹쳐 두 줄로 보인다.
+        self.layout_panel.set_rows([self.layout[name] for name in order] + [self.reset_layout])
 
         if drag['dropped'] and settled:
             self.drag_timer.Stop()
@@ -326,8 +316,6 @@ class SettingsBox(ScrollArea):
 
     def apply_theme(self, theme):
         self.set_theme(theme)
-        for label in self.labels:
-            label.SetForegroundColour(wx.Colour(theme['text']))
         for child in self.content.GetChildren():
             if hasattr(child, 'set_theme'):
                 child.set_theme(theme)

@@ -8,18 +8,26 @@
 <style>
 :root {
     color-scheme: dark;
-    --bg: #1b1d21;
-    --face: #25282d;
-    --rim: #3a3f46;
+    /* PyWinAudio 랙과 같은 숯색 판. 앱이 setTheme 으로 테마 값을 덮어쓴다 (utilities.THEMES). */
+    --bg: #141517;
+    --face: #1d1f23;
+    --band: #17181b;
+    --rim: #2b2e33;
     --text: #e6e9ed;
     --dim: #8b929b;
+    --faint: #5a5e65;
     --accent: #4c9aff;
+    --on_accent: #101215;
+    --control: #26282d;
+    --control_hover: #2f3237;
+    --control_down: #202226;
+    --edge: #363940;
     --mint: #3fd6a0;
-    --grid: #2b2f35;
-    --warn: #e2a03f;
+    --grid: #2c2f35;
+    --warn: #ff9a3d;
     --close: #c42b1c;
     /* 넓은 창에서 그림이 뭉툭해지지 않게 폭은 활동 모자이크 폭에서 멈추고 가운데에 선다. */
-    --chart-max: 368px;
+    --chart-max: 100%;
     /* 그래프 계열색. 1 = 파랑(accent), 2 = 주황. 상태색(--warn·--close)과 따로 둔다.
        어두운 판의 2 번은 판 밝기 대역(OKLCH L 0.48–0.67)에 맞춰 낮췄다 — setTheme 참고.
        검증: 파랑↔주황 색약 ΔE 27.7 / 정상 시각 29.6 (dataviz validate_palette). */
@@ -27,7 +35,18 @@
     --series2: #c98430;
     /* 진행 막대는 모두 이 굵기·둥글기 하나로 (한도·세션 문맥·모델·주별·내역·색인 띠). */
     --bar-height: 6px;
-    --bar-radius: 3px;
+    --bar-radius: 1px;
+    /* 판 (PyWinAudio 랙): 모서리, 이름 띠 높이, 안쪽 여백, 판 사이 틈. wx 페이지와 같은 값. */
+    --panel-radius: 3px;
+    --band-height: 30px;
+    --pad: 14px;
+    --gap: 3px;
+    /* 누르는 것은 모두 같은 키·옆 여백·글씨·사이 (wx 페이지의 BUTTON_*). */
+    --button-height: 22px;
+    --button-pad: 11px;
+    --button-gap: 4px;
+    --button-font: 400 11.3px "Segoe UI", sans-serif;
+    --band-inset: 4px;
     --sunken: color-mix(in srgb, var(--face) 70%, var(--grid));
     --soft: color-mix(in srgb, var(--accent) 45%, var(--grid));
 }
@@ -36,10 +55,10 @@
 
 body {
     margin: 0;
-    /* 위는 타이틀바 바로 아래라 옆보다 좁게 둔다. */
-    /* 옆 여백 6px + 막대 자리 10px = 16px. 막대 자리를 양쪽에 똑같이 둬서
-       (scrollbar-gutter) 카드가 오른쪽 막대 때문에 왼쪽으로 쏠리지 않게 한다. */
-    padding: 8px 6px 20px;
+    /* 창 가장자리와 판 사이는 위·아래·옆 모두 8px (wx 페이지의 PANEL_MARGIN). 옆 8px 는
+       막대 자리(scrollbar-gutter) 그대로다. 양쪽에 똑같이 둬서 판이 막대 때문에 왼쪽으로
+       쏠리지 않게 한다. */
+    padding: 8px 0;
     background: var(--bg);
     color: var(--text);
     font: 13px "Segoe UI", sans-serif;
@@ -48,32 +67,85 @@ body {
     overflow-x: hidden;
 }
 
-h2 {
+/* 판 ----------------------------------------------------------------
+   PyWinAudio 랙 장치와 같은 모양: 한 톤 어두운 이름 띠(왼쪽 끝 강조색 줄, 접기 꺾쇠,
+   대문자 굵은 제목, 흐린 부제, 오른쪽 끝 단추) 아래 1px 금, 그 아래 평평한 본체.
+   띠를 누르면 접히고, 접은 판은 띠 한 줄만 남는다. */
+section { margin-bottom: var(--gap); }
+
+section > h2 {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
-    /* 기간 단추가 달린 제목과 키를 맞춘다. 격자에서 나란한 카드의 윗선이 어긋나지 않게. */
-    min-height: 22px;
-    margin: 0 0 8px 3px;
-    font-size: 13px;
+    /* 띠 30px + 아래 금 1px. 띠 안의 단추(22px)는 띠 가장자리에서 위·아래·옆 모두 4px. */
+    height: calc(var(--band-height) + 1px);
+    margin: 0;
+    padding: 0 var(--band-inset);
+    border-bottom: 1px solid var(--rim);
+    border-radius: var(--panel-radius) var(--panel-radius) 0 0;
+    background: var(--band);
+    font-size: 12px;
     font-weight: 700;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
-h2 .tail { margin-left: auto; font-weight: 400; }
-
-section { margin-bottom: 14px; }
+section > h2::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+}
+section.folded > h2,
+section > h2.solo { height: var(--band-height); border-bottom: 0; border-radius: var(--panel-radius); }
+/* 접기 단추 = 꺾쇠 + 제목. 반응하는 것은 이 단추뿐이다 — 띠의 다른 단추에 손을 얹었을 때
+   꺾쇠가 함께 밝아지면 안 된다(사용자). 제목이 없는 띠(solo)의 글씨도 같은 자리에 선다. */
+h2 .fold {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    height: var(--button-height);
+    margin: 0;
+    padding: 0 8px 0 6px;
+    border: 0;
+    border-radius: var(--panel-radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+}
+h2 .fold svg { width: 10px; height: 10px; flex: none; color: var(--dim); }
+h2 .fold:hover { background: var(--control_hover); }
+h2 .fold:hover svg { color: var(--text); }
+h2 .fold:active { background: var(--control_down); }
+section.folded > h2 .fold svg { transform: rotate(-90deg); }
+section > h2.solo { padding-left: calc(var(--band-inset) + 22px); }
+section.folded > .card { display: none; }
+/* 부제는 제목(단추) 뒤에 흐리게, 오른쪽 끝 단추는 tail 에. */
+h2 .sub,
+h2 .tail { font-weight: 400; letter-spacing: 0; text-transform: none; }
+h2 .sub { min-width: 0; margin-left: 8px; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; color: var(--dim); }
+section > h2.solo .sub { margin-left: 8px; }
+h2 .tail { display: flex; margin-left: auto; padding-left: 8px; }
 
 /* 넓은 창에서는 묶음을 여러 단으로 편다 (설정의 Wide layout 이 켜져 있을 때만).
    신문·문서의 단처럼 첫 단을 위에서 아래로 채우고 다음 단으로 넘어간다. 차례는
    설정 그대로, 끊는 자리는 단 높이가 가장 고르게 되는 곳 (layoutSections). 단 수는
    폭이 정한다: 820px 부터 2단, 1240px 부터 3단. */
-#sections.masonry { display: flex; align-items: flex-start; gap: 16px; }
+#sections.masonry { display: flex; align-items: flex-start; gap: var(--gap); }
 #sections.masonry > .masonry-column { flex: 1; min-width: 0; }
 
 .card {
     background: var(--face);
-    border: 1px solid var(--rim);
-    border-radius: 6px;
-    padding: 12px 14px;
+    border-radius: 0 0 var(--panel-radius) var(--panel-radius);
+    padding: var(--pad);
 }
 
 .caption {
@@ -87,28 +159,48 @@ section { margin-bottom: 14px; }
 .num { font-variant-numeric: tabular-nums lining-nums; }
 .empty { padding: 6px 0; color: var(--dim); font-size: 12px; text-align: center; }
 
-/* 둘셋 중 하나를 고르는 작은 단추 묶음 */
+/* 둘셋 중 하나를 고르는 칸 묶음 (PyWinAudio 의 Segment). 칸마다 테두리를 두르고 고른
+   칸만 강조색으로 채운다. 띠 안이든 본체든 같은 모양·크기. 고른 칸도 굵게 쓰지 않는다 —
+   굵어지면 폭이 변해 누를 때마다 옆 칸이 밀린다(사용자). */
 .seg {
     display: inline-flex;
-    /* 좁은 창에서는 다음 줄로 넘긴다. 한 줄을 고집하면 카드 밖으로 삐져나간다. */
+    /* 좁은 창에서는 다음 줄로 넘긴다. 한 줄을 고집하면 판 밖으로 삐져나간다. */
     flex-wrap: wrap;
+    gap: var(--button-gap);
     max-width: 100%;
-    padding: 2px;
-    border-radius: 5px;
-    background: var(--grid);
 }
-.seg button {
-    padding: 2px 8px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--dim);
-    font: 600 10px "Segoe UI", sans-serif;
+h2 .seg { flex-wrap: nowrap; }
+/* 글자 단추 공통. 글씨는 대문자 높이로 잘라(text-box) 상자 한가운데에 선다 — 글자 상자의
+   위 여유·아래 내림 자리 때문에 그냥 두면 위아래로 치우친다(사용자). */
+.seg button,
+button.primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--button-height);
+    margin: 0;
+    padding: 0 var(--button-pad);
+    border: 1px solid var(--edge);
+    border-radius: var(--panel-radius);
+    background: var(--control);
+    color: var(--text);
+    font: var(--button-font);
+    letter-spacing: 0;
+    line-height: 1;
+    text-transform: none;
+    white-space: nowrap;
     cursor: pointer;
 }
-.seg button.on { background: var(--face); color: var(--text); }
-.controls { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 10px; }
-.controls.center { justify-content: center; }
+.seg button,
+button.primary,
+h2 .fold { text-box: trim-both cap alphabetic; }
+.seg button:hover,
+button.primary:hover { background: var(--control_hover); }
+.seg button:active,
+button.primary:active { background: var(--control_down); }
+.seg button.on { border-color: var(--accent); background: var(--accent); color: var(--on_accent); }
+button.primary[disabled] { color: var(--faint); background: var(--control); cursor: default; }
+.controls { display: flex; flex-wrap: wrap; gap: var(--button-gap) 8px; align-items: center; margin-bottom: var(--pad); }
 .controls .label { font-size: 9px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
 
 .link {
@@ -123,7 +215,7 @@ section { margin-bottom: 14px; }
 
 /* 뼈대 — 첫 값이 오기 전 카드마다 실제 모양대로 자리를 잡아 둔다. 값이 오면서
    카드가 부풀어 오르지 않게. 깜빡임은 은은하게, 움직임 줄이기 설정이면 멈춘다. */
-.sk { display: block; border-radius: 3px; background: var(--grid); animation: sk-pulse 1.6s ease-in-out infinite; }
+.sk { display: block; border-radius: var(--panel-radius); background: var(--grid); animation: sk-pulse 1.6s ease-in-out infinite; }
 .sk.line { height: 9px; }
 .sk-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .sk-stack > * + * { margin-top: 6px; }
@@ -132,14 +224,14 @@ section { margin-bottom: 14px; }
 
 /* 알림 띠 ------------------------------------------------------------ */
 .banner {
-    margin-bottom: 14px;
-    padding: 8px 12px;
-    border: 1px solid var(--rim);
-    border-left: 3px solid var(--accent);
-    border-radius: 6px;
+    position: relative;
+    margin-bottom: var(--gap);
+    padding: 8px var(--pad);
+    border-radius: var(--panel-radius);
     background: var(--face);
     font-size: 12px;
 }
+.banner::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--accent); }
 .banner .bar { margin-top: 6px; height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
 .banner .bar > i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--accent); }
 
@@ -147,16 +239,15 @@ section { margin-bottom: 14px; }
 .header { display: flex; justify-content: space-between; gap: 12px; }
 .header .right { text-align: right; }
 .header .value { margin: 2px 0; font-size: 15px; font-weight: 700; }
-.plans { display: flex; flex-wrap: wrap; gap: 6px; }
-.plan { padding: 1px 7px; border: 1px solid var(--rim); border-radius: 9px; font-size: 10px; font-weight: 600; }
+/* 지금 쓰는 플랜은 머리판 이름 띠의 부제 자리에. 좁으면 줄을 바꾸지 않고 잘린다. */
+/* 눌리지 않는 글씨라 테두리를 두르지 않는다 — 단추처럼 보이면 안 된다. */
+.plans { display: flex; flex-wrap: nowrap; gap: 10px; min-width: 0; overflow: hidden; }
+.plan { flex: none; font-size: 10.5px; }
 .plan .provider { margin-right: 4px; }
-/* 왼쪽에 지금 쓰는 플랜, 오른쪽에 기간 단추 (WhereMyTokens 머리줄과 같은 자리). */
-.header-period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; min-height: 22px; margin: 0 0 8px; }
-.header-period .seg { margin-left: auto; }
 
 /* 한도 --------------------------------------------------------------- */
-.limit + .limit { margin-top: 14px; }
-.limit-group + .limit-group { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--rim); }
+.limit + .limit { margin-top: var(--pad); }
+.limit-group + .limit-group { margin-top: var(--pad); padding-top: var(--pad); border-top: 1px solid var(--rim); }
 .limit-brand { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
 .limit-brand .brand-icon { width: 14px; height: 14px; flex: none; }
 .limit-brand.claude .brand-icon { border-radius: 3px; }
@@ -170,7 +261,7 @@ section { margin-bottom: 14px; }
 .limit-lift .time-left { font-size: 22px; font-weight: 700; line-height: 1.1; }
 .limit-lift .lift-caption { font-size: 11px; color: var(--dim); }
 /* 서버에 못 물어 지난 값을 보일 때. 까닭 한 줄을 위에 두고 막대는 옅게. */
-.limit-note { margin-bottom: 12px; padding: 6px 8px; border-radius: 4px; background: var(--sunken); font-size: 11px; color: var(--dim); }
+.limit-note { margin-bottom: var(--pad); padding: 6px 8px; border-radius: var(--panel-radius); background: var(--sunken); font-size: 11px; color: var(--dim); }
 .limit.stale { opacity: 0.55; }
 .limit-note .limit-login { display: block; margin-top: 4px; }
 .limit .head { display: flex; align-items: baseline; gap: 8px; }
@@ -193,14 +284,14 @@ section { margin-bottom: 14px; }
 .limit .bar > .time { background: color-mix(in srgb, var(--dim) 45%, var(--grid)); }
 /* Codex 강제 초기화 이용권. 이용권마다 만료가 따로라 한 장씩 남은 시간을 둔다.
    하루 안에 사라질 것은 주황 테두리에 '곧' 표시를 붙인다 (색만으로 가르지 않는다). */
-.resets { margin-top: 14px; }
+.resets { margin-top: var(--pad); }
 .resets .head { display: flex; align-items: baseline; gap: 8px; }
 .resets .name { font-size: 12px; }
 .resets .when { flex: 1; font-size: 11px; color: var(--dim); }
 .resets .count { font-weight: 600; color: var(--accent); }
 .resets.stale { opacity: 0.55; }
 .reset-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.reset-chip { padding: 1px 7px; border: 1px solid var(--rim); border-radius: 4px; font-size: 11px; color: var(--dim); }
+.reset-chip { padding: 1px 7px; border: 1px solid var(--edge); border-radius: var(--panel-radius); font-size: 11px; color: var(--dim); }
 .reset-chip b { font-weight: 600; color: var(--text); }
 .reset-chip.soon { border-color: var(--warn); }
 .reset-chip.soon b { color: var(--warn); }
@@ -225,7 +316,7 @@ section { margin-bottom: 14px; }
 .bars > .slot.picked > i.neg { background: var(--series2); }
 .bars > .slot:hover > i { filter: brightness(1.2); }
 .axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 9px; color: var(--dim); }
-.chart + .chart { margin-top: 10px; }
+.chart + .chart { margin-top: var(--pad); }
 
 /* 코드 산출 ---------------------------------------------------------- */
 /* 아래 그림과 같은 폭에서 멈추고 가운데에 선다. 넓은 창에서 셋이 양끝으로 흩어지지 않게. */
@@ -234,7 +325,7 @@ section { margin-bottom: 14px; }
 .kpi .value { margin: 2px 0; font-size: 15px; font-weight: 700; }
 
 /* 고른 칸의 내역 */
-.breakdown { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rim); }
+.breakdown { margin-top: var(--pad); padding-top: var(--pad); border-top: 1px solid var(--rim); }
 .breakdown h3 { margin: 10px 0 6px; font-size: 11px; font-weight: 700; display: flex; justify-content: space-between; }
 .breakdown h3:first-child { margin-top: 0; }
 .breakdown h3 .note { font-weight: 400; }
@@ -258,10 +349,10 @@ section { margin-bottom: 14px; }
 .session .actions { display: flex; gap: 10px; margin-top: 4px; }
 .chip {
     padding: 1px 6px;
-    border-radius: 9px;
+    border-radius: var(--panel-radius);
     font-size: 10px;
     white-space: nowrap;
-    border: 1px solid var(--rim);
+    border: 1px solid var(--edge);
     color: var(--dim);
 }
 /* 상태는 색만으로 말하지 않는다. 글자와 테두리 굵기도 다르다. */
@@ -285,8 +376,9 @@ section { margin-bottom: 14px; }
 /* 활동 --------------------------------------------------------------- */
 /* 칸은 12px 에서 멈추고(넓은 창에서 뭉툭해지지 않게), 자리가 모자라면 그만큼
    줄어든다(좁은 창에서 카드 밖으로 넘치지 않게). 칸 높이는 폭을 따라 정사각형. */
-.heat-box { width: fit-content; max-width: 100%; margin: 0 auto; }
-.heat { display: grid; grid-template-columns: auto minmax(0, calc(24 * 12px + 23 * 2px)); gap: 2px 6px; }
+/* 그림은 판 안쪽 여백(14px)까지 꽉 채운다. 가운데로 모으면 판마다 왼쪽 줄이 달라진다(사용자). */
+.heat-box { width: 100%; }
+.heat { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 6px; }
 .heat .row-label,
 .heat .hour-label { font-size: 9px; color: var(--dim); line-height: 1; }
 .heat .cells,
@@ -295,7 +387,7 @@ section { margin-bottom: 14px; }
 .heat .hour-label { white-space: nowrap; overflow: visible; }
 .heat .row-label { align-self: center; }
 .calendar { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, auto);
-            grid-auto-columns: minmax(0, 12px); gap: 2px; }
+            grid-auto-columns: minmax(0, 1fr); gap: 2px; }
 .calendar > i { display: block; aspect-ratio: 1; border-radius: 1.5px; }
 .calendar > i.blank { visibility: hidden; }
 .week-row { display: grid; grid-template-columns: 70px 1fr 90px; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; }
@@ -328,21 +420,6 @@ section { margin-bottom: 14px; }
 .model .track { grid-column: 1 / -1; height: var(--bar-height); border-radius: var(--bar-radius); background: var(--grid); overflow: hidden; }
 .model .track i { display: block; height: 100%; border-radius: var(--bar-radius); background: var(--accent); }
 
-/* 새로고침 ----------------------------------------------------------- */
-.action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-button.primary {
-    padding: 5px 16px;
-    border: 0;
-    border-radius: 5px;
-    background: var(--accent);
-    color: #fff;
-    font: 600 12px "Segoe UI", sans-serif;
-    cursor: pointer;
-}
-button.primary:hover { filter: brightness(1.16); }
-button.primary:active { filter: brightness(0.85); }
-button.primary[disabled] { filter: none; opacity: 0.5; cursor: default; }
-
 /* 막대는 굴리는 동안만 보인다. 자리는 늘 잡아 둬 나타날 때 내용이 밀리지 않는다.
    스크롤바 의사요소에는 transition 이 안 먹는다. 색을 등록된 변수(@property)로 두고
    그 변수를 html 에서 옮겨 가게 하면 막대가 따라 칠해진다 — 나타날 땐 바로,
@@ -355,10 +432,11 @@ button.primary[disabled] { filter: none; opacity: 0.5; cursor: default; }
 html { --thumb: transparent; transition: --thumb 0.4s ease-out; }
 html.scrolling { --thumb: var(--rim); transition: none; }
 html { scrollbar-gutter: stable both-edges; }
-::-webkit-scrollbar { width: 10px; }
+/* 막대 자리 8px 가 곧 옆 여백이다. 막대는 그 가운데 4px (wx 페이지의 ScrollBar 와 같다). */
+::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb {
-    border: 3px solid transparent;
-    border-radius: 5px;
+    border: 2px solid transparent;
+    border-radius: 4px;
     background-color: var(--thumb);
     background-clip: content-box;
 }
@@ -375,7 +453,7 @@ html { scrollbar-gutter: stable both-edges; }
 <div id="sections">
 
 <section data-id="header">
-    <div class="header-period"><span class="plans" id="plans"></span><span class="seg" data-control="headerPeriod"></span></div>
+    <h2>Overview <span class="plans sub" id="plans"></span><span class="tail"><span class="seg" data-control="headerPeriod"></span></span></h2>
     <div class="card header">
         <div>
             <div class="caption" id="cost-caption">Today cost</div>
@@ -426,18 +504,12 @@ html { scrollbar-gutter: stable both-edges; }
 </section>
 
 <section data-id="modelUsage">
-    <h2>Model Usage <span class="tail note">Top 4 · all time</span></h2>
+    <h2>Model Usage <span class="sub">Top 4 · all time</span></h2>
     <div class="card" id="models" data-skeleton="models"></div>
 </section>
 
 <section data-id="refresh">
-    <div class="card action">
-        <div>
-            <div>Refresh</div>
-            <div class="note" id="updated">Re-read the agent records</div>
-        </div>
-        <button class="primary" id="reload">Reload</button>
-    </div>
+    <h2 class="solo">Refresh <span class="sub" id="updated">Re-read the agent records</span><span class="tail"><button class="primary" id="reload">Reload</button></span></h2>
 </section>
 
 </div>
@@ -644,7 +716,7 @@ var SKELETON = {
         var kpi = '<div class="sk-stack" style="align-items:center;display:flex;flex-direction:column">' +
             sk('60%') + sk('40%', 16) + sk('50%') + '</div>';
         return '<div class="kpis">' + kpi + kpi + kpi + '</div>' +
-            '<div class="chart" style="margin-top:12px">' + '<div class="sk-row" style="margin-bottom:6px">' +
+            '<div class="chart" style="margin-top:14px">' + '<div class="sk-row" style="margin-bottom:6px">' +
             sk('35%') + sk('30%') + '</div>' + sk('100%', 64) + '<div style="height:45px"></div></div>';
     },
     trend: function () {
@@ -679,12 +751,43 @@ document.querySelectorAll('[data-skeleton]').forEach(function (host) {
 var SECTION_HEIGHTS = {};
 var reserved = [];
 
+/* 접은 판. 앱이 설정에서 실어 주고 (usageview.load_page), 접고 펼 때마다 돌려보낸다. */
+var FOLDED = [];
+var FOLD_ICON = '<svg viewBox="0 0 10 10"><path d="M1.5 3.25 5 6.75 8.5 3.25" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+    'stroke-linejoin="round"/></svg>';
+
+document.querySelectorAll('section[data-id] > h2:not(.solo)').forEach(function (band) {
+    var node = band.parentElement;
+    // 띠의 맨 앞 글씨(제목)를 꺾쇠와 함께 접기 단추 하나로 감싼다. 띠의 나머지는 누르지 않는다.
+    var title = band.firstChild;
+    var button = document.createElement('button');
+    button.className = 'fold';
+    button.innerHTML = FOLD_ICON;
+    button.appendChild(document.createTextNode(title.textContent.trim()));
+    band.replaceChild(button, title);
+    node.classList.toggle('folded', FOLDED.indexOf(node.getAttribute('data-id')) >= 0);
+    button.title = node.classList.contains('folded') ? 'Unfold' : 'Fold';
+    button.addEventListener('click', function (event) {
+        event.stopPropagation();
+        node.classList.toggle('folded');
+        button.title = node.classList.contains('folded') ? 'Unfold' : 'Fold';
+        FOLDED = [].map.call(document.querySelectorAll('section.folded[data-id]'), function (item) {
+            return item.getAttribute('data-id');
+        });
+        send('folds:' + JSON.stringify(FOLDED));
+        snapButtons(node);
+        layoutSections();
+        reportSections();
+    });
+});
+
 function reserveSections() {
     if (SECTION_HEIGHTS.columns !== getColumnCount()) { return; }
     Object.keys(SECTION_HEIGHTS.sections || {}).forEach(function (id) {
         var node = document.querySelector('section[data-id="' + id + '"]');
         var card = node && node.querySelector('.card');
-        if (!card) { return; }
+        if (!card || node.classList.contains('folded')) { return; }
         node.style.height = SECTION_HEIGHTS.sections[id][0] + 'px';
         card.style.height = SECTION_HEIGHTS.sections[id][1] + 'px';
         card.style.overflow = 'hidden';
@@ -702,7 +805,8 @@ function reportSections() {
     var sections = {};
     document.querySelectorAll('section[data-id]').forEach(function (node) {
         var card = node.querySelector('.card');
-        if (!node.hidden && card) {
+        // 접은 판은 키를 남기지 않는다. 다음 시작 때 펼쳐 뼈대를 그 키로 못박으면 안 된다.
+        if (!node.hidden && card && !node.classList.contains('folded')) {
             sections[node.getAttribute('data-id')] = [node.offsetHeight, card.offsetHeight];
         }
     });
@@ -718,13 +822,48 @@ setTimeout(function () {
     layoutSections();
 }, 0);
 
+/* 칸은 한 번만 만들고 그 뒤로는 고른 칸 표시만 바꾼다. 누를 때마다 새로 만들면 손 아래의
+   단추가 바뀌어 hover 가 풀렸다 다시 걸리며 깜빡인다. */
 function drawControls() {
     document.querySelectorAll('[data-control]').forEach(function (host) {
         var name = host.getAttribute('data-control');
-        host.innerHTML = CHOICES[name].map(function (choice) {
-            return '<button data-value="' + choice[0] + '"' +
-                (view[name] === choice[0] ? ' class="on"' : '') + '>' + choice[1] + '</button>';
-        }).join('');
+        if (!host.children.length) {
+            host.innerHTML = CHOICES[name].map(function (choice) {
+                return '<button data-value="' + choice[0] + '">' + choice[1] + '</button>';
+            }).join('');
+        }
+        [].forEach.call(host.children, function (button) {
+            button.classList.toggle('on', button.getAttribute('data-value') === view[name]);
+        });
+    });
+    snapButtons(document);
+}
+
+/* 단추 폭을 정수 화소로. 글씨 폭대로 두면 소수점 폭이 되어 오른쪽 맞춤한 단추와 그 글씨가
+   반 칸에 걸리고, 가는 획(l·i)이 두 화소에 갈려 흐리게 번진다(사용자 "찌글찌글"). 보이는
+   단추만 잰다 — 접힌 판 안의 단추는 펼칠 때 잰다. */
+function snapButtons(root) {
+    root.querySelectorAll('.seg button, button.primary, h2 .fold, .controls .label').forEach(function (button) {
+        if (button.dataset.snapped === button.textContent) { return; }
+        button.style.width = '';
+        var width = button.getBoundingClientRect().width;
+        if (!width) { return; }
+        button.style.width = Math.ceil(width) + 'px';
+        button.dataset.snapped = button.textContent;
+    });
+}
+
+/* 단 폭도 정수 화소로 나눈다. 남는 화소는 앞 단부터 하나씩. */
+function sizeColumns() {
+    var host = el('sections');
+    var columns = host.querySelectorAll(':scope > .masonry-column');
+    if (!columns.length) { return; }
+    var gap = parseFloat(getComputedStyle(host).columnGap) || 0;
+    var room = host.clientWidth - gap * (columns.length - 1);
+    var width = Math.floor(room / columns.length);
+    var extra = room - width * columns.length;
+    columns.forEach(function (column, index) {
+        column.style.flex = '0 0 ' + (width + (index < extra ? 1 : 0)) + 'px';
     });
 }
 
@@ -986,7 +1125,7 @@ function drawCode(data) {
     });
     var weekNet = points.reduce(function (sum, p) { return sum + p.value; }, 0);
     var totalNet = everything.added - everything.removed;
-    html += '<div style="margin-top:12px">' + chart(
+    html += '<div style="margin-top:14px">' + chart(
         '<span>Net lines · last 7 days</span><span><b>' + signed(weekNet) + '</b> this week · ' +
         signed(totalNet) + ' all time</span>',
         bars(points),
@@ -1354,7 +1493,13 @@ function splitColumns(heights, count) {
     return starts;
 }
 
-/* 묶음을 단에 나눠 담는다. 머리판이 맨 앞, Refresh 가 맨 끝, 그 사이는 설정의 차례. */
+/* 묶음을 단에 나눠 담는다. 머리판이 맨 앞, Refresh 가 맨 끝, 그 사이는 설정의 차례.
+   단을 다시 나누는 것은 단 수·차례·숨김·접힘이 바뀌었을 때와 첫 값이 왔을 때뿐이다. 단추를
+   누르거나 1 분마다 새로 그릴 때마다 다시 나누면 판이 단 사이를 오가며 튄다(사용자). */
+var splitKey = null;
+// 첫 값으로 그린 뒤에야 참이다. 그 전의 나누기는 뼈대 키로 한 것이라 한 번 다시 나눈다.
+var drawnOnce = false;
+
 function layoutSections() {
     var host = el('sections');
     var nodes = {};
@@ -1369,6 +1514,7 @@ function layoutSections() {
     var count = getColumnCount();
     var columns = [].slice.call(host.querySelectorAll(':scope > .masonry-column'));
     if (count === 1) {
+        splitKey = null;
         order.forEach(function (id) { host.appendChild(nodes[id]); });
         columns.forEach(function (column) { column.remove(); });
         host.classList.remove('masonry');
@@ -1377,6 +1523,10 @@ function layoutSections() {
     // 단 수가 그대로면 카드는 이미 단 폭으로 그려져 있다. 그 자리에서 재고, 단이
     // 바뀌는 카드만 옮긴다. 1 분마다 새로 그릴 때 카드를 통째로 뺐다 넣으면 번쩍인다.
     var settled = host.classList.contains('masonry') && columns.length === count;
+    var key = [count, order.join(','), order.filter(function (id) { return nodes[id].hidden; }).join(','),
+               FOLDED.join(','), drawnOnce ? 'data' : 'skeleton'].join('|');
+    if (settled && key === splitKey) { return; }
+    splitKey = key;
     host.classList.add('masonry');
     while (columns.length < count) {
         var column = document.createElement('div');
@@ -1385,6 +1535,7 @@ function layoutSections() {
         columns.push(column);
     }
     while (columns.length > count) { columns.pop().remove(); }
+    sizeColumns();
     var shown = order.filter(function (id) { return !nodes[id].hidden; });
     if (!settled) {
         // 단 폭에서 키를 재야 한다. 다 첫 단에 담아 놓고 하나씩 잰다.
@@ -1419,6 +1570,7 @@ window.addEventListener('resize', function () {
     var current = host.classList.contains('masonry')
         ? host.querySelectorAll(':scope > .masonry-column').length : 1;
     if (getColumnCount() !== current) { layoutSections(); }
+    sizeColumns();
 });
 
 function drawUpdated() {
@@ -1431,7 +1583,6 @@ function render(data) {
     latest = data;
     releaseSections();
     el('reload').disabled = false;
-    el('reload').textContent = 'Reload';
     drawControls();
     arrangeSections(data.sections, data.wide);
     var parts = [['header', drawHeader], ['plans', function () { drawPlans(data.plans); }],
@@ -1442,6 +1593,7 @@ function render(data) {
     parts.forEach(function (part) {
         try { part[1](data); } catch (error) { console.error(part[0], error); }
     });
+    drawnOnce = true;
     // 단 나누기는 새 내용의 키로 다시 한다. 위의 arrangeSections 는 옛 내용의 키로 쟀으므로,
     // 키가 바뀐 카드는 다음 갱신 때에야 제 단으로 옮겨 가며 번쩍였다.
     layoutSections();
@@ -1454,7 +1606,8 @@ setInterval(function () { drawUpdated(); drawCountdowns(); }, 15000);
 el('reload').addEventListener('click', function () {
     var button = el('reload');
     button.disabled = true;
-    button.textContent = 'Reading…';
+    // 단추 글씨는 그대로 둔다(폭이 변하면 띠가 밀린다). 읽는 중이라는 것은 부제가 말한다.
+    el('updated').textContent = 'reading…';
     send('reload');
 });
 

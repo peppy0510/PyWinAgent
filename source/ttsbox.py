@@ -5,8 +5,8 @@
 author: Taehong Kim
 email: peppy0510@hotmail.com
 
-agent-toolkit 의 TTS 설정을 고치는 페이지. Windows 11 설정처럼 그룹 제목
-아래 카드를 쌓는다. 카드가 창보다 길어 세로로 굴린다.
+agent-toolkit 의 TTS 설정을 고치는 페이지. PyWinAudio 랙처럼 이름 띠가 달린 판을
+쌓고, 판마다 접을 수 있다. 판이 창보다 길어 세로로 굴린다.
 
 값이 바뀔 때마다 파일에 쓰지 않는다 — 슬라이더를 끄는 동안 UNC 너머로 수십
 번 쓰게 된다. 잠깐 쉬면 그때 한 번 쓴다.
@@ -19,20 +19,10 @@ import ttsconfig
 
 from controls import ActionCard
 from controls import ChipGrid
+from controls import Panel
 from controls import ScrollArea
 from controls import SettingCard
 from controls import SliderCard
-from utilities import get_font
-
-
-MARGIN = 16
-# 타이틀바 바로 아래. 옆 여백보다 좁게 둔다.
-TOP_MARGIN = 8
-# 카드 테두리는 선이지만 제목은 글자라, 같은 여백이면 제목이 왼쪽으로 삐져나와 보인다.
-TITLE_INSET = 3
-TITLE_GAP = 8
-CARD_GAP = 4
-GROUP_GAP = 14
 
 # 값이 멎고 이만큼 지나면 저장한다.
 SAVE_DELAY = 500
@@ -72,12 +62,14 @@ GROUPS = (
 
 class TtsBox(ScrollArea):
 
-    def __init__(self, parent, theme):
+    def __init__(self, parent, theme, folds=None, on_fold=None):
         super().__init__(parent, theme)
         self.values, self.raw = ttsconfig.load()
         self.dirty = False
         self.cards = {}
-        self.labels = []
+        # 접힌 판의 키. 앱이 설정 페이지와 함께 쥐고 저장한다.
+        self.folds = folds if folds is not None else set()
+        self.on_folds = on_fold
 
         board = self.content
         voices, self.online = ttsconfig.list_voices()
@@ -86,8 +78,6 @@ class TtsBox(ScrollArea):
         self.preview = ActionCard(board, theme, 'Preview',
                                   'Save and read a sample line aloud',
                                   'Play', self.on_preview)
-        self.status = wx.StaticText(board, label=self.get_status())
-        self.status.SetFont(get_font(8))
 
         for key, (label, description) in SWITCHES.items():
             self.cards[key] = SettingCard(board, theme, label, description,
@@ -95,7 +85,8 @@ class TtsBox(ScrollArea):
         for key, (label, description) in SLIDERS.items():
             value = self.values.get(key, ttsconfig.DEFAULTS[key])
             self.cards[key] = SliderCard(board, theme, label, description,
-                                         ttsconfig.bounds(key, value), self.on_change)
+                                         ttsconfig.bounds(key, value), self.on_change,
+                                         default=ttsconfig.DEFAULTS[key])
         for key, card in self.cards.items():
             card.SetValue(self.values.get(key, ttsconfig.DEFAULTS[key]))
 
@@ -107,55 +98,38 @@ class TtsBox(ScrollArea):
         self.Bind(wx.EVT_TIMER, self.on_idle_save)
 
     def get_status(self):
+        # Voice 판 이름 띠의 부제로 쓴다. 좁은 창에서 잘려도 앞말이 뜻을 지니게 짧게.
         if self.online:
-            return 'Supertonic is running — clone voices included.'
-        return 'Supertonic is not answering — showing built-in voices only.'
+            return 'Supertonic running · clone voices included'
+        return 'Supertonic not answering · built-in voices only'
 
-    def add_title(self, sizer, text):
-        label = wx.StaticText(self.content, label=text)
-        label.SetFont(get_font(10, bold=True))
-        self.labels.append(label)
-        sizer.Add(label, 0, wx.LEFT, MARGIN + TITLE_INSET)
-        sizer.AddSpacer(TITLE_GAP)
+    def add_panel(self, key, title, body, subtitle=''):
+        return Panel(self.content, self.theme, 'tts.' + key, title, body, self.folds,
+                     self.on_fold, subtitle=subtitle)
 
     def build(self):
-        # 묶음마다 세로 사이저 하나. 넓은 창에서는 여러 단으로 나눠 담긴다 (Wide layout).
-        groups = []
-
         # 소리를 낼지 말지가 먼저다. 나머지는 낸다고 했을 때의 이야기라 뒤에 둔다.
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        self.add_title(sizer, 'Notifications')
-        sizer.Add(self.cards['notify'], 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-        sizer.AddSpacer(GROUP_GAP)
-        groups.append(sizer)
-
+        panels = [self.add_panel('notifications', 'Notifications', (self.cards['notify'],))]
         for title, keys in GROUPS:
-            sizer = wx.BoxSizer(wx.VERTICAL)
-            self.add_title(sizer, title)
+            body = [self.cards[key] for key in keys]
+            subtitle = ''
             if title == 'Voice':
-                sizer.Add(self.grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-                sizer.AddSpacer(CARD_GAP)
-                sizer.Add(self.status, 0, wx.LEFT | wx.RIGHT, MARGIN + TITLE_INSET)
-                sizer.AddSpacer(CARD_GAP * 2)
-                sizer.Add(self.preview, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-            for index, key in enumerate(keys):
-                if index or title == 'Voice':
-                    sizer.AddSpacer(CARD_GAP)
-                sizer.Add(self.cards[key], 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-            sizer.AddSpacer(GROUP_GAP)
-            groups.append(sizer)
+                body = [self.grid, self.preview] + body
+                subtitle = self.get_status()
+            panels.append(self.add_panel(title.lower().replace(' ', '_'), title, body, subtitle))
+        # 묶음마다 판 하나. 넓은 창에서는 여러 단으로 나눠 담긴다 (Wide layout).
+        self.set_panels(panels)
 
-        self.set_groups(TOP_MARGIN, groups)
+    def on_fold(self):
+        self.relayout_panels()
+        if self.on_folds:
+            self.on_folds()
 
     def apply_theme(self, theme):
         self.set_theme(theme)
-        for label in self.labels:
-            label.SetForegroundColour(wx.Colour(theme['text']))
-        self.status.SetForegroundColour(wx.Colour(theme['dim']))
-        self.grid.set_theme(theme)
-        self.preview.set_theme(theme)
-        for card in self.cards.values():
-            card.set_theme(theme)
+        for child in self.content.GetChildren():
+            if hasattr(child, 'set_theme'):
+                child.set_theme(theme)
         self.Refresh()
 
     def collect(self):

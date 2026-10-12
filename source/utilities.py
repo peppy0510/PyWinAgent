@@ -9,6 +9,7 @@ email: peppy0510@hotmail.com
 
 import ctypes
 import json
+import math
 import os
 import wx
 
@@ -19,9 +20,26 @@ APP_NAME = 'PyWinAgent'
 
 CONTROL_HEIGHT = 28
 ROUND_SIZE = 46
-CARD_HEIGHT = 54
+# 판 안의 한 줄. 단추(BUTTON_HEIGHT) 위아래 여백이 옆 여백(PANEL_PAD)과 같은 14 가 되는 키.
+CARD_HEIGHT = 50
 CARD_RADIUS = 6
 CONTROL_GAP = 4
+
+# PyWinAudio 랙의 판. 모서리는 거의 각지고, 맨 위 이름 띠 한 줄이 접은 판의 모양이다.
+PANEL_RADIUS = 3
+HEADER_BAND = 30
+# 창 가장자리와 판 사이, 판과 판 사이. 랙처럼 판을 촘촘히 쌓는다.
+PANEL_MARGIN = 8
+PANEL_GAP = 3
+# 판 안쪽 여백. 본체의 글씨·조작부는 판 가장자리에서 위·아래·왼쪽·오른쪽 모두 이만큼.
+PANEL_PAD = 14
+# 누르는 것은 모두 같은 키·같은 글씨·같은 옆 여백이다 (토글·고르기·글자 단추·보이스 칸·접기).
+BUTTON_HEIGHT = 22
+BUTTON_PAD = 11
+BUTTON_GAP = 4
+BUTTON_FONT = 8.5
+# 이름 띠(30) 안의 단추는 띠 가장자리에서 위·아래·옆 모두 4.
+BAND_INSET = (HEADER_BAND - BUTTON_HEIGHT) // 2
 
 # 직접 그리는 타이틀바의 높이. 캡션 버튼은 Windows 와 같은 46x32 로 둔다.
 TITLEBAR_HEIGHT = 32
@@ -46,32 +64,56 @@ DWMWA_CAPTION_COLOR = 35
 
 THEMES = {
     'dark': {
-        'bg': '#1b1d21',
-        'face': '#25282d',
-        'rim': '#3a3f46',
+        # PyWinAudio 랙과 같은 Native Instruments 식 숯색. 판(face)은 바탕보다 한 톤 밝고,
+        # 이름 띠(band)는 판보다 한 톤 어둡다. 회색은 색을 띠지 않는다.
+        'bg': '#141517',
+        'face': '#1d1f23',
+        'band': '#17181b',
+        'rim': '#2b2e33',
         'tick': '#6b727c',
         'tick_major': '#c8cdd4',
         'text': '#e6e9ed',
         'dim': '#8b929b',
+        'faint': '#5a5e65',
         'accent': '#4c9aff',
-        'control': '#2f333a',
+        # 색을 채운 단추 위의 글씨. 밝은 파랑 위라 어둡게.
+        'on_accent': '#101215',
+        'control': '#26282d',
+        'control_hover': '#2f3237',
+        'control_down': '#202226',
+        'edge': '#363940',
+        'track': '#2c2f35',
+        # 슬라이더 손잡이. PyWinAudio 그래픽 EQ 페이더의 납작한 손잡이와 같은 색.
+        'thumb': '#c4c7cc',
+        'thumb_hover': '#e6e7e9',
+        'thumb_line': '#2a2d32',
         'close': '#c42b1c',
         # 아낀 것과 늘어난 것. 파랑 하나로는 돈과 이득이 구분되지 않는다.
         'mint': '#3fd6a0',
-        'grid': '#2b2f35',
-        'warn': '#e2a03f',
+        'grid': '#2c2f35',
+        'warn': '#ff9a3d',
         'titlebar_dark': True,
     },
     'light': {
         'bg': '#f4f5f7',
         'face': '#ffffff',
+        'band': '#eef0f2',
         'rim': '#d5d9df',
         'tick': '#9aa1aa',
         'tick_major': '#3d434b',
         'text': '#1d2126',
         'dim': '#6b727c',
+        'faint': '#a3a9b1',
         'accent': '#2b6cb0',
-        'control': '#e8eaee',
+        'on_accent': '#ffffff',
+        'control': '#eef0f3',
+        'control_hover': '#e2e5ea',
+        'control_down': '#d8dce2',
+        'edge': '#c9ced5',
+        'track': '#d5d9df',
+        'thumb': '#5b626b',
+        'thumb_hover': '#3d434b',
+        'thumb_line': '#ffffff',
         'close': '#c42b1c',
         'mint': '#0f9d68',
         'grid': '#e2e5ea',
@@ -221,10 +263,149 @@ def draw_card_rim(gc, colour, x, y, width, height, radius=CARD_RADIUS):
     gc.FillPath(path, wx.ODDEVEN_RULE)
 
 
+FONTS = {}
+
+
 def get_font(size, bold=False):
-    weight = wx.FONTWEIGHT_BOLD if bold else wx.FONTWEIGHT_NORMAL
-    return wx.Font(size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
-                   weight, faceName='Segoe UI')
+    '''반 포인트 단위로 고른다. wxPython 4.3 의 wx.Font 생성자는 실수 크기를 거절해
+    FontInfo 로 만든다.'''
+    key = (size, bold)
+    if key not in FONTS:
+        info = wx.FontInfo(size).FaceName('Segoe UI')
+        FONTS[key] = wx.Font(info.Bold() if bold else info)
+    return FONTS[key]
+
+
+INKS = {}
+WIDTHS = {}
+
+
+def get_luma(image, x, y):
+    '''세 채널 평균. 글씨는 ClearType 이라 채널마다 1/3 칸씩 어긋나 한 채널만 보면 한쪽으로 쏠려 잰다.'''
+    return (image.GetRed(x, y) + image.GetGreen(x, y) + image.GetBlue(x, y)) / 3.0
+
+
+def get_ink(font):
+    '''이 글꼴로 y=0 에 쓴 대문자 H 의 잉크 맨 윗줄과 맨 아랫줄(=기준선). 글자 상자는 위 여유와
+    아래 내림 자리를 품어 상자로 가운데를 잡으면 글씨가 위아래로 치우친다. 잉크로 잡는다.'''
+    key = font.GetNativeFontInfoDesc()
+    if key not in INKS:
+        bitmap = wx.Bitmap(80, 80, 24)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.BLACK_BRUSH)
+        dc.Clear()
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, wx.WHITE)
+        gc.DrawText('H', 4, 0)
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+        image = bitmap.ConvertToImage()
+        rows = [y for y in range(80) if any(get_luma(image, x, y) > 127 for x in range(80))]
+        INKS[key] = (rows[0], rows[-1]) if rows else (0, 0)
+    return INKS[key]
+
+
+def get_text_width(font, text):
+    '''그리는 것과 같은 GraphicsContext 로 잰 폭. DC 로 재면 1 px 어긋난다.'''
+    key = (font.GetNativeFontInfoDesc(), text)
+    if key not in WIDTHS:
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, wx.BLACK)
+        WIDTHS[key] = int(math.ceil(gc.GetTextExtent(text)[0]))
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+    return WIDTHS[key]
+
+
+SPANS = {}
+
+
+def get_ink_span(font, text, colour='#ffffff', back='#000000'):
+    '''x=0 에 쓴 글씨의 잉크 왼쪽·오른쪽 끝. GDI+ 가 재 주는 글자 폭은 오른쪽에 여유를 더 얹어
+    폭으로 가운데를 잡으면 글씨가 왼쪽으로 2~3 px 치우친다(실측). 가로 가운데는 잉크로 잡는다.
+    ClearType 은 글씨·바탕 색에 따라 테두리가 달리 번져 실제 두 색으로 잰다.'''
+    key = (font.GetNativeFontInfoDesc(), text, colour, back)
+    if key not in SPANS:
+        width = get_text_width(font, text) + 40
+        fore, ground = wx.Colour(colour), wx.Colour(back)
+        bitmap = wx.Bitmap(width, 60, 24)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.Brush(ground))
+        dc.Clear()
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, fore)
+        gc.DrawText(text, 20, 10)
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+        image = bitmap.ConvertToImage()
+        base = (ground.Red() + ground.Green() + ground.Blue()) / 3.0
+        limit = abs((fore.Red() + fore.Green() + fore.Blue()) / 3.0 - base) / 2.0
+        columns = [x for x in range(width)
+                   if any(abs(get_luma(image, x, y) - base) > limit for y in range(60))]
+        SPANS[key] = (columns[0] - 20, columns[-1] - 20) if columns else (0, 0)
+    return SPANS[key]
+
+
+def get_text_top(font, top, height):
+    '''top..top+height 칸의 세로 가운데에 대문자 잉크가 오게 하는 DrawText 의 y. 정수로 —
+    반 칸에 걸리면 글씨가 번진다.'''
+    ink_top, ink_bottom = get_ink(font)
+    return int(round(top + (height - (ink_bottom - ink_top + 1)) / 2.0 - ink_top))
+
+
+def draw_text_in(gc, text, rect, font, colour, align='center', back=None):
+    '''rect 안에 글씨를 놓는다. 세로는 잉크 가운데, 가로는 가운데·왼쪽·오른쪽. back 은 글씨 뒤
+    바탕색 (잉크를 그 색 위에서 잰다).'''
+    gc.SetFont(font, wx.Colour(colour))
+    width = get_text_width(font, text)
+    if back is None:
+        ink_left, ink_right = get_ink_span(font, text)
+    else:
+        ink_left, ink_right = get_ink_span(font, text, colour, back)
+    if align == 'center':
+        x = int(round(rect.x + (rect.width - (ink_right - ink_left + 1)) / 2.0 - ink_left))
+    elif align == 'right':
+        x = rect.x + rect.width - 1 - ink_right
+    else:
+        x = rect.x - ink_left
+    gc.DrawText(text, x, get_text_top(font, rect.y, rect.height))
+    return width
+
+
+def fill_rect(gc, colour, x, y, width, height, radius=0):
+    gc.SetPen(wx.TRANSPARENT_PEN)
+    gc.SetBrush(wx.Brush(wx.Colour(colour)))
+    if radius:
+        gc.DrawRoundedRectangle(x, y, width, height, radius)
+    else:
+        gc.DrawRectangle(x, y, width, height)
+
+
+def draw_frame(gc, colour, x, y, width, height):
+    '''1 px 네모 테두리. 펜으로 두르면 왼쪽·위만 두 칸에 걸쳐 굵어 보여 네 변을 채워 세운다.'''
+    fill_rect(gc, colour, x, y, width, 1)
+    fill_rect(gc, colour, x, y + height - 1, width, 1)
+    fill_rect(gc, colour, x, y, 1, height)
+    fill_rect(gc, colour, x + width - 1, y, 1, height)
+
+
+def draw_chevron(gc, name, cx, cy, size, colour):
+    '''접기 단추의 꺾쇠. 펼친 판은 아래(down), 접은 판은 오른쪽(right).'''
+    gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(wx.Colour(colour)).Width(1.5)
+                           .Cap(wx.CAP_ROUND).Join(wx.JOIN_ROUND)))
+    gc.SetBrush(wx.TRANSPARENT_BRUSH)
+    half = size / 2
+    path = gc.CreatePath()
+    if name == 'down':
+        path.MoveToPoint(cx - half * 0.7, cy - half * 0.35)
+        path.AddLineToPoint(cx, cy + half * 0.35)
+        path.AddLineToPoint(cx + half * 0.7, cy - half * 0.35)
+    else:
+        path.MoveToPoint(cx - half * 0.35, cy - half * 0.7)
+        path.AddLineToPoint(cx + half * 0.35, cy)
+        path.AddLineToPoint(cx - half * 0.35, cy + half * 0.7)
+    gc.StrokePath(path)
 
 
 class Canvas(wx.Panel):
