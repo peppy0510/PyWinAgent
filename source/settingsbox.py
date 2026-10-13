@@ -4,12 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-앱 자신의 설정. 다루는 도구의 설정(TTS)은 그 페이지가 가지고, 여기에는 창과
-사용량 페이지에 관한 것을 둔다. 사용량 쪽 묶음은 WhereMyTokens 설정의 짜임을
-따른다 (Providers·Currency·Main Layout·Data).
-
-값은 `get_values()` 로 한 번에 내준다. 저장과 적용은 mainapp 이 한다.
 '''
 
 
@@ -34,12 +28,10 @@ CURRENCIES = (('USD', 'USD'), ('KRW', 'KRW'))
 
 THEMES = (('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark'))
 
-# 끌기 애니메이션. 한 프레임마다 남은 거리의 이만큼씩 다가간다 (지수 감속).
 DRAG_FRAME_MS = 16
 DRAG_EASE = 0.35
 
 REINDEX_NOTE = 'Rebuild the index from the record files'
-# 처음 누르면 단추가 Confirm 으로 바뀌어 이만큼 기다린다. 그 안에 다시 눌러야 지운다.
 REINDEX_CONFIRM_MS = 6000
 
 
@@ -50,7 +42,6 @@ class SettingsBox(ScrollArea):
         super().__init__(parent, theme)
         self.on_change = on_change
         self.actions = actions or {}
-        # 접힌 판의 키. 앱이 TTS 페이지와 함께 쥐고 저장한다.
         self.folds = folds if folds is not None else set()
         self.on_folds = on_fold
         board = self.content
@@ -64,13 +55,11 @@ class SettingsBox(ScrollArea):
 
         self.agents = {key: toggle(label, description) for key, label, description in AGENTS}
 
-
         self.wide = toggle('Wide layout', 'Lay sections out in columns when the window is wide')
         self.widget = toggle('Floating usage widget', 'Small always-on-top quota pace window')
 
         self.currency = ChoiceCard(board, theme, 'Currency', 'Money on the usage page',
                                    CURRENCIES, on_change)
-        # 두 번 누르면 돌아가는 값은 처음 설정의 기본값(load 와 같은 값)이다.
         self.krw = SliderCard(board, theme, 'KRW per USD', 'Exchange rate for KRW',
                               (900, 2000, 10, 0), on_change, default=1380)
 
@@ -139,7 +128,6 @@ class SettingsBox(ScrollArea):
             ('currency', 'Currency', (self.currency, self.krw)),
         )]
 
-        # 끌어서 차례를 바꾸는 줄은 따로 사이저에 담아 차례가 바뀔 때마다 다시 채운다.
         self.layout_sizer = wx.BoxSizer(wx.VERTICAL)
         self.layout_panel = self.add_panel('layout', 'Main layout',
                                            (self.layout_sizer, self.reset_layout),
@@ -148,7 +136,6 @@ class SettingsBox(ScrollArea):
         self.fill_layout()
 
         panels.append(self.add_panel('data', 'Data', (self.projects, self.hidden, self.reindex)))
-        # 넓은 창에서는 판을 여러 단으로 편다 (Wide layout).
         self.set_panels(panels)
 
     def on_fold(self):
@@ -160,12 +147,10 @@ class SettingsBox(ScrollArea):
         return [self.layout[key] for key in self.order] + [self.reset_layout]
 
     def fill_layout(self):
-        # Clear 는 사이저 항목만 떼고 줄은 살려 둔다.
         self.layout_sizer.Clear()
         for key in self.order:
             self.layout_sizer.Add(self.layout[key], 0, wx.EXPAND)
         self.layout_panel.set_rows(self.get_layout_rows())
-        # 접힌 판이면 새로 담은 줄도 숨긴 채로 둔다.
         self.layout_panel.apply_fold()
 
     def relayout(self):
@@ -174,11 +159,8 @@ class SettingsBox(ScrollArea):
         self.Refresh()
 
     def on_drag(self, card, phase, screen_y):
-        '''카드 끌기. 끄는 카드는 마우스를 그대로 따라오고, 나머지는 새 차례의
-        자리로 매 프레임 조금씩 미끄러진다. 놓으면 그 차례를 사이저에 넣는다.'''
         key = next(name for name, value in self.layout.items() if value is card)
         if phase == 'start':
-            # 칸 자리는 지금 사이저가 놓은 자리에서 잰다. 카드 높이와 사이가 다 같다.
             slots = [self.layout[name].GetPosition().y for name in self.order]
             self.drag = {
                 'key': key, 'order': list(self.order), 'slots': slots,
@@ -204,7 +186,6 @@ class SettingsBox(ScrollArea):
         stride = (slots[-1] - slots[0]) / float(len(slots) - 1) if len(slots) > 1 else 1
         key = drag['key']
 
-        # 끄는 카드의 자리: 마우스를 따르되 첫 칸과 끝 칸 밖으로는 안 나간다.
         top = self.content.ScreenToClient(wx.Point(0, drag['mouse'])).y - drag['grab']
         top = min(max(top, slots[0]), slots[-1])
         index = int(round((top - slots[0]) / stride)) if stride else 0
@@ -225,7 +206,6 @@ class SettingsBox(ScrollArea):
                 else:
                     settled = False
             self.layout[name].SetPosition(wx.Point(drag['x'], int(round(drag['y'][name]))))
-        # 맨 위로 온 줄은 위 금을 거둔다. 띠 아래 금과 겹쳐 두 줄로 보인다.
         self.layout_panel.set_rows([self.layout[name] for name in order] + [self.reset_layout])
 
         if drag['dropped'] and settled:
@@ -247,8 +227,6 @@ class SettingsBox(ScrollArea):
         self.on_change()
 
     def on_reindex(self):
-        '''색인은 지워진 기록 파일의 사용량을 담은 유일한 사본이다. 다시 만들면
-        그 몫은 영영 사라지므로 두 번 눌러야 지운다. 첫 번째는 잃을 양을 센다.'''
         if self.reindex.tone == 'warn':
             self.disarm_reindex()
             self.run('reset_index')
@@ -265,7 +243,6 @@ class SettingsBox(ScrollArea):
         if self.reindex.tone != 'warn':
             return
         if requests:
-            # 같은 요청이 WSL·Windows 사본에 함께 있으면 다시 읽혀 살아남는다. 그래서 상한이다.
             text = 'Up to %s requests ($%s) from deleted files will be lost' % (
                 format(requests, ','), format(round(cost), ','))
         else:

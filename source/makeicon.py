@@ -4,14 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-assets/icon 의 icon.ico 와 icon.png 를 만든다.
-
-마크는 파랑→보라→주황 타일을 꽉 채운 남색 반짝이다. 반짝이는 흔히 AI 도우미를 가리키는
-기호이고, 타일 색은 앱이 다루는 Claude(파랑)·Codex(주황)의 계열색을 잇는다.
-
-반짝이는 초타원(|x|^(2/p) + |y|^(2/p) = 1)의 네 끝이다. p 가 클수록 날이 가늘다.
-작은 치수는 날을 굵게 그린다 — 가는 날을 그대로 16px 로 줄이면 흰 점 하나로 뭉갠다.
 '''
 
 
@@ -27,13 +19,11 @@ TILE_STOPS = ((70, 150, 255), (120, 90, 240), (250, 150, 80))
 
 SPARK_RADIUS = 0.4
 SPARK_POWER = 3.4
-# 이보다 작으면 반짝이 날을 굵게 그린다.
 SIMPLIFY_BELOW = 32
 SMALL_SPARK_POWER = 2.6
 
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
-# 계단을 없애려고 이 배율로 그린 뒤 줄인다.
 SCALE = 8
 
 
@@ -46,7 +36,6 @@ def blend(stops, t):
 
 
 def draw_gradient(canvas):
-    '''왼쪽 위에서 오른쪽 아래로 흐르는 타일 색. 가로를 조금 더 탄다.'''
     image = Image.new('RGBA', (canvas, canvas))
     pixels = image.load()
     for y in range(canvas):
@@ -89,8 +78,6 @@ def main():
 
     frames = [draw_mark(size) for size in SIZES]
     frames[-1].save(os.path.join(path, 'icon.png'))
-    # ico 는 치수마다 따로 그린 그림을 담는다. Pillow 가 알아서 깎게 두면
-    # 16px 이 뭉개진다.
     frames[-1].save(os.path.join(path, 'icon.ico'), format='ICO',
                     sizes=[(size, size) for size in SIZES],
                     append_images=frames[:-1])

@@ -4,15 +4,10 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-agent-toolkit 의 TTS 설정을 고치는 페이지. PyWinAudio 랙처럼 이름 띠가 달린 판을
-쌓고, 판마다 접을 수 있다. 판이 창보다 길어 세로로 굴린다.
-
-값이 바뀔 때마다 파일에 쓰지 않는다 — 슬라이더를 끄는 동안 UNC 너머로 수십
-번 쓰게 된다. 잠깐 쉬면 그때 한 번 쓴다.
 '''
 
 
+import threading
 import wx
 
 import ttsconfig
@@ -24,10 +19,8 @@ from controls import ScrollArea
 from controls import SettingCard
 from controls import SliderCard
 
-# 값이 멎고 이만큼 지나면 저장한다.
 SAVE_DELAY = 500
 
-# (키, 이름, 설명). 값의 범위는 ttsconfig 가 정한다.
 SLIDERS = {
     'speed': ('Speed', 'How fast the voice reads'),
     'steps': ('Quality steps', 'More steps sound better and take longer'),
@@ -67,12 +60,11 @@ class TtsBox(ScrollArea):
         self.values, self.raw = ttsconfig.load()
         self.dirty = False
         self.cards = {}
-        # 접힌 판의 키. 앱이 설정 페이지와 함께 쥐고 저장한다.
         self.folds = folds if folds is not None else set()
         self.on_folds = on_fold
 
         board = self.content
-        voices, self.online = ttsconfig.list_voices()
+        voices, self.online = list(ttsconfig.BUILTIN_VOICES), False
         self.grid = ChipGrid(board, theme, voices, self.on_change, self.fit)
         self.grid.SetValue(self.values.get('voice', voices[0]))
         self.preview = ActionCard(board, theme, 'Preview',
@@ -96,9 +88,22 @@ class TtsBox(ScrollArea):
 
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_idle_save)
+        # a closed localhost port takes Windows 2 s to refuse; ask off the UI thread
+        threading.Thread(target=self.load_voices, daemon=True).start()
+
+    def load_voices(self):
+        voices, online = ttsconfig.list_voices()
+        wx.CallAfter(self.set_voices, voices, online)
+
+    def set_voices(self, voices, online):
+        if not self:
+            return
+        self.online = online
+        self.grid.set_options(voices)
+        self.voice_panel.header.set_subtitle(self.get_status())
+        self.relayout_panels()
 
     def get_status(self):
-        # Voice 판 이름 띠의 부제로 쓴다. 좁은 창에서 잘려도 앞말이 뜻을 지니게 짧게.
         if self.online:
             return 'Supertonic running · clone voices included'
         return 'Supertonic not answering · built-in voices only'
@@ -108,7 +113,6 @@ class TtsBox(ScrollArea):
                      self.on_fold, subtitle=subtitle)
 
     def build(self):
-        # 소리를 낼지 말지가 먼저다. 나머지는 낸다고 했을 때의 이야기라 뒤에 둔다.
         panels = [self.add_panel('notifications', 'Notifications', (self.cards['notify'],))]
         for title, keys in GROUPS:
             body = [self.cards[key] for key in keys]
@@ -117,7 +121,8 @@ class TtsBox(ScrollArea):
                 body = [self.grid, self.preview] + body
                 subtitle = self.get_status()
             panels.append(self.add_panel(title.lower().replace(' ', '_'), title, body, subtitle))
-        # 묶음마다 판 하나. 넓은 창에서는 여러 단으로 나눠 담긴다 (Wide layout).
+            if title == 'Voice':
+                self.voice_panel = panels[-1]
         self.set_panels(panels)
 
     def on_fold(self):
@@ -140,14 +145,12 @@ class TtsBox(ScrollArea):
 
     def on_change(self):
         self.dirty = True
-        # 끄는 동안은 계속 미룬다. 손을 멈춘 뒤에 한 번만 쓴다.
         self.timer.Start(SAVE_DELAY, wx.TIMER_ONE_SHOT)
 
     def on_idle_save(self, event):
         self.flush()
 
     def flush(self):
-        '''미뤄 둔 저장을 지금 한다. 페이지를 떠나거나 창을 닫을 때도 부른다.'''
         if not self.dirty:
             return None
         self.timer.Stop()
@@ -156,8 +159,6 @@ class TtsBox(ScrollArea):
         return ttsconfig.save(self.values, self.raw)
 
     def on_preview(self):
-        '''speak.ps1 이 settings.json 을 새로 읽으므로 저장을 먼저 해야
-        지금 화면의 값 그대로 들린다.'''
         self.flush()
         ttsconfig.preview(self.grid.GetValue())
 

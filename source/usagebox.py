@@ -4,16 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-사용량 페이지. TTS·설정 페이지와 같은 랙 판(`controls.Panel`)을 쌓고 본체는 캔버스에 직접
-그린다. 웹뷰(usage.htm) 판을 옮겨 왔다 — 다른 PyWin 앱과 같이 런타임이 하나뿐이다.
-
-값은 `usageindex` 가 색인한 기록에서 `dashboard` 가 뽑는다. 모으는 일은 두
-번에 나눈다 — 색인과 저장해 둔 git 통계로 먼저 그리고, git 을 다시 센 뒤에
-한 번 더 그린다. git 은 저장소마다 몇 초씩 걸린다.
-
-판 본체(`Body`)는 키가 폭에서 나온다. 그리는 함수를 빈 바탕에 한 번 돌려 잰다 —
-같은 함수가 재고 그리니 둘이 어긋나지 않는다. 누를 자리와 툴팁 자리는 그리면서 적는다.
 '''
 
 
@@ -54,49 +44,34 @@ from utilities import get_text_top
 from utilities import mix
 from utilities import shade
 
-# 로그인 창을 띄운 뒤 새 토큰이 생겼는지 이 간격으로, 이만큼 동안 살핀다.
 LOGIN_POLL_MS = 5000
 LOGIN_POLL_LIMIT = 10 * 60
-# 토큰이 만료되기 직전(claudelogin.REFRESH_SKEW)이면 Sign in 단추와 같은 조용한 갱신을 스스로 돌린다.
-# 실패하면(refresh token 까지 만료 등) 이만큼 기다렸다 다시 해 본다 — 매 tick 마다 claude 를 띄우지 않게.
 AUTO_REFRESH_RETRY = 30 * 60
-# 만료 시각은 파일에서 읽는다. 이보다 자주 읽지 않는다.
 EXPIRY_CHECK = 30
-# 폭주 막이. 정상이면 하루 3 번(8 시간마다)이다. 24 시간 안에 이만큼 넘게는 스스로 돌리지 않는다.
-# 시도 시각은 색인 meta 에 남겨 앱을 다시 띄워도 이어 센다. 넘으면 Sign in 단추만 남는다.
 AUTO_REFRESH_DAILY_CAP = 6
 AUTO_REFRESH_KEY = 'claude_auto_refresh'
 
-# 페이지가 보이는 동안 이 간격으로 다시 읽는다. 색인 덕에 새 줄만 읽는다.
 AUTO_REFRESH = 60
-# git 은 비싸다. 이보다 자주 다시 세지 않는다 (Reload 를 누르면 바로 센다).
 GIT_REFRESH = 10 * 60
-# 남은 시간(한도·이용권)과 'last run' 글씨를 이 간격으로 다시 쓴다.
 CLOCK_REFRESH = 15
 
-# 묶음 머리의 도구 아이콘. 각 앱 설치 패키지의 Square44x44Logo(64px) 를 옮겨 둔 것.
 BRAND_ICONS = ('claude', 'codex-dark', 'codex-light')
 BRAND_SIZE = 14
 
-# 글씨 크기(pt)와 그 글씨의 줄 키(px). 웹판의 px 글씨를 0.75 배로 옮겼고, 줄 키는 Segoe UI 의
-# 기본 줄 높이(글씨의 약 1.33 배)다.
-TINY = 7        # 9px  — 이름표·축·눈금
-SMALL = 7.5     # 10px — 그림 머리·도구 이름표·상태 칩
-NOTE = 8        # 11px — 흐린 설명
-BODY = 9        # 12px — 줄 이름
-MAIN = 10       # 13px — 본문
-VALUE = 11      # 15px — 큰 숫자
-HUGE = 16.5     # 22px — 한도가 풀리기까지
+TINY = 7
+SMALL = 7.5
+NOTE = 8
+BODY = 9
+MAIN = 10
+VALUE = 11
+HUGE = 16.5
 LINE = {TINY: 12, SMALL: 13, NOTE: 15, BODY: 16, MAIN: 17, VALUE: 20, HUGE: 24}
 
 PAD = PANEL_PAD
-# 그림은 넓은 창에서 부풀지 않는다 — 칸이 커지면 뚱뚱해 보인다(사용자). 활동 모자이크
-# 폭(칸 12px)에서 멈추고 판 가운데에 선다. 좁으면 그만큼 줄어든다.
 CHART_MAX = 368
 CHART_HEIGHT = 64
 SMALL_CHART = 34
 SLOT_GAP = 2
-# 진행 막대는 모두 이 굵기·둥글기 하나로 (한도·세션 문맥·모델·주별·내역·색인 띠).
 BAR_HEIGHT = 6
 BAR_RADIUS = 1
 CELL_MAX = 12
@@ -138,15 +113,13 @@ LOGIN_TEXT = {
 }
 WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
 
-# 설정에서 오는 값 가운데 다시 모아야 하는 것. 묶음 차례·단 나누기는 그리기만 바뀐다.
 DATA_OPTIONS = ('agents', 'hidden', 'excluded', 'currency', 'rate')
 
 
 def get_palette(theme):
-    '''테마에 그림용 색을 더한다. 계열색 1 = 파랑(accent), 2 = 주황. 상태색(warn·close)과 따로
-    둔다. 어두운 판의 2 번은 판 밝기에 맞춰 낮췄다 (파랑↔주황 색약 ΔE 27.7 / 정상 29.6).'''
     palette = dict(theme)
     palette['series1'] = theme['accent']
+    # dimmed for dark panels; still apart from blue for red-green colour blindness (dE 27.7)
     palette['series2'] = '#c98430' if theme['titlebar_dark'] else theme['warn']
     palette['sunken'] = mix(theme['face'], theme['grid'], 0.3).GetAsString(wx.C2S_HTML_SYNTAX)
     palette['soft'] = mix(theme['grid'], theme['accent'], 0.45).GetAsString(wx.C2S_HTML_SYNTAX)
@@ -154,7 +127,7 @@ def get_palette(theme):
 
 
 def js_round(value):
-    '''JS 의 Math.round 와 같이 .5 는 위로. 파이썬 round 는 짝수 쪽으로 간다.'''
+    # Math.round semantics; Python round() goes to even
     return int(math.floor(value + 0.5))
 
 
@@ -186,7 +159,6 @@ def ago(ms):
 
 
 def countdown(until):
-    '''남은 시간을 짧게. 한도가 풀리기까지의 큰 글자에 쓴다.'''
     seconds = max(0, js_round(until - time.time()))
     days, hours, minutes = seconds // 86400, seconds % 86400 // 3600, seconds % 3600 // 60
     if days:
@@ -197,7 +169,6 @@ def countdown(until):
 
 
 def clock(at):
-    '''풀리는 시각을 이 곳 시간으로. 물은 때와 받은 때의 몇 초 어긋남에 분이 흔들리지 않게 반올림한다.'''
     moment = time.localtime(js_round(at / 60.0) * 60)
     return '%d/%d %s %02d:%02d' % (moment.tm_mon, moment.tm_mday, WEEKDAYS[moment.tm_wday],
                                    moment.tm_hour, moment.tm_min)
@@ -212,7 +183,6 @@ def to_date(day):
 
 
 def bucket_of(day, grain):
-    '''묶는 단위의 열쇠. 주는 월요일에서 시작한다.'''
     if grain == 'day':
         return day
     if grain == 'month':
@@ -228,7 +198,6 @@ def bucket_label(key, grain):
 
 
 def get_level(value, peak):
-    '''칸 하나가 유난히 바쁘면 나머지가 다 같은 색이 된다. 제곱근으로 눌러 편다.'''
     if not value:
         return 0
     return max(1, min(LEVELS, js_round(math.sqrt(value / float(peak)) * LEVELS)))
@@ -251,8 +220,6 @@ def sum_code(code, days):
 
 
 def flow(items, x, y, width, gap, row_gap, height, center=True):
-    '''items = [(폭, 그리기(x, y))]. 자리가 모자라면 줄을 넘긴다 (웹판의 flex-wrap). 줄마다
-    가운데에 두고, 다 쓴 아래 끝 y 를 돌려준다.'''
     rows, row, used = [], [], 0
     for item in items:
         wanted = item[0] if not row else used + gap + item[0]
@@ -274,7 +241,6 @@ def flow(items, x, y, width, gap, row_gap, height, center=True):
 
 
 def round_corners(image, radius):
-    '''Claude 아이콘은 모서리를 3px 굴린다 (웹판의 border-radius). 모서리 밖은 알파로 지운다.'''
     if not image.HasAlpha():
         image.InitAlpha()
     width, height = image.GetWidth(), image.GetHeight()
@@ -311,7 +277,6 @@ def get_spaced_width(gc, font, text, spacing):
 
 
 def draw_spaced(gc, font, colour, text, x, y, spacing):
-    '''자간을 벌린 글씨. 한 글자씩 놓는다 (웹판의 letter-spacing).'''
     gc.SetFont(font, colour)
     for letter in text:
         gc.DrawText(letter, x, y)
@@ -319,7 +284,6 @@ def draw_spaced(gc, font, colour, text, x, y, spacing):
 
 
 class Zone:
-    '''누르거나 툴팁을 띄울 자리. lit 이면 손을 얹었을 때 모양이 바뀌어 다시 그린다.'''
 
     __slots__ = ('rect', 'key', 'action', 'tip', 'lit')
 
@@ -332,8 +296,6 @@ class Zone:
 
 
 class Painter:
-    '''판 본체를 그리는 손. 글씨·막대·단추를 테마 색으로 그리고, 누를 자리와 툴팁 자리를
-    적어 둔다. fade 를 주면 모든 색을 판 바탕 쪽으로 그만큼 옅게 한다 (지난 값).'''
 
     def __init__(self, gc, theme, body):
         self.gc = gc
@@ -341,20 +303,22 @@ class Painter:
         self.body = body
         self.zones = []
         self.fade = 0.0
+        self.widths = {}
 
     def colour(self, name):
-        # 테마 이름·'#rrggbb'·wx.Colour 모두 받는다. wx.Colour 는 사전 열쇠가 못 된다.
         colour = wx.Colour(self.theme.get(name, name) if isinstance(name, str) else name)
         if self.fade:
             colour = mix(colour, self.theme['face'], self.fade)
         return colour
 
     def width(self, text, size, bold=False):
-        self.gc.SetFont(get_font(size, bold), wx.BLACK)
-        return self.gc.GetTextExtent(text)[0]
+        key = (text, size, bold)
+        if key not in self.widths:
+            self.gc.SetFont(get_font(size, bold), wx.BLACK)
+            self.widths[key] = self.gc.GetTextExtent(text)[0]
+        return self.widths[key]
 
     def fit(self, text, size, bold, limit):
-        '''주어진 폭을 넘으면 말줄임으로 자른다.'''
         if self.width(text, size, bold) <= limit:
             return text
         while text and self.width(text + '…', size, bold) > limit:
@@ -363,13 +327,11 @@ class Painter:
 
     def text(self, text, x, top, size, colour='text', bold=False, align='left', limit=None,
              line=None):
-        '''줄 칸(top..top+line) 의 세로 가운데에 대문자 잉크가 오게 쓴다. 쓴 폭을 돌려준다.'''
         font = get_font(size, bold)
         return self.draw_at(text, x, get_text_top(font, top, line or LINE[size]), font,
                             size, colour, bold, align, limit)
 
     def baseline(self, size, top, line=None, bold=False):
-        '''줄 칸에 쓴 글씨의 기준선. 크기가 다른 글씨를 한 줄에 둘 때 이 선에 맞춘다.'''
         font = get_font(size, bold)
         return get_text_top(font, top, line or LINE[size]) + get_ink(font)[1]
 
@@ -394,11 +356,9 @@ class Painter:
         return width
 
     def rich(self, parts, x, top, size, align='left', limit=None):
-        '''굵기·색이 섞인 한 줄. parts = [(글씨, 색, 굵게)].'''
         total = sum(self.width(text, size, bold) for text, _, bold in parts)
         if align == 'right':
             x -= total
-        # 넘치면 자리가 다하는 조각에서 말줄임으로 끊는다.
         room = total if limit is None else limit
         for text, colour, bold in parts:
             if room <= 0:
@@ -424,7 +384,6 @@ class Painter:
         return width
 
     def caption(self, text, x, top, align='left'):
-        '''작은 대문자 이름표. 자간을 벌려야 제목처럼 읽힌다.'''
         return self.spaced(text.upper(), x, top, TINY, 'dim', True, 1.4, align)
 
     def fill(self, colour, x, y, width, height, radius=0):
@@ -434,14 +393,12 @@ class Painter:
         draw_card_rim(self.gc, self.colour(colour), x, y, width, height, radius)
 
     def track(self, x, y, width, ratio, colour='accent', back='grid'):
-        '''진행 막대. 바탕 막대 위에 몫만큼 채운다.'''
         self.fill(back, x, y, width, BAR_HEIGHT, BAR_RADIUS)
         filled = width * max(0.0, min(1.0, ratio))
         if filled > 0:
             self.fill(colour, x, y, filled, BAR_HEIGHT, BAR_RADIUS)
 
     def wrap(self, text, size, limit, bold=False):
-        '''낱말 단위로 줄을 나눈다.'''
         lines, line = [], ''
         for word in text.split(' '):
             candidate = word if not line else line + ' ' + word
@@ -473,7 +430,6 @@ class Painter:
         return width
 
     def link(self, text, x, top, key, action, size=NOTE):
-        '''글자 단추. 손을 얹으면 밑줄. 반응하는 것은 글씨 자리뿐이다.'''
         width = self.text(text, x, top, size, 'accent')
         if self.body.hover == key:
             base = self.baseline(size, top)
@@ -482,13 +438,11 @@ class Painter:
         return width
 
     def dot(self, x, baseline, colour):
-        '''도구 표시의 동그라미. 아랫변을 글씨 기준선에 둔다 (웹판의 vertical-align: 0).'''
         self.gc.SetPen(wx.TRANSPARENT_PEN)
         self.gc.SetBrush(wx.Brush(self.colour(colour)))
         self.gc.DrawEllipse(x, baseline - 7, 7, 7)
 
     def provider(self, provider, x, baseline, upper=True):
-        '''도구 표시: 계열색 동그라미 + 흐린 이름. 쓴 폭을 돌려준다.'''
         colour = {'claude': 'series1', 'codex': 'series2'}.get(provider, 'dim')
         name = AGENT_NAMES.get(provider, provider)
         name = name.upper() if upper else name
@@ -501,9 +455,6 @@ class Painter:
 
 
 class Body(Canvas):
-    '''판 본체 한 장. 그리는 일은 render(painter, width) → 다 쓴 높이 가 한다. 키는 폭에서
-    나오므로 폭이 바뀌거나 값이 바뀌면 다시 재고, 키가 달라졌을 때만 최소 크기를 준다 —
-    키가 폭만 보고 정해져 되먹임이 생기지 않는다.'''
 
     first = True
     last = True
@@ -513,6 +464,7 @@ class Body(Canvas):
         self.render = render
         self.on_layout = on_layout
         self.zones = []
+        self.measured = None
         self.hover = None
         self.hover_lit = False
         self.down = None
@@ -531,17 +483,16 @@ class Body(Canvas):
         try:
             height = self.render(painter, width)
         except Exception:
-            # 한 판이 깨져도 나머지는 그린다.
             traceback.print_exc()
             height = self.GetMinSize()[1]
         self.zones = painter.zones
         return int(math.ceil(height))
 
     def measure(self):
-        '''지금 폭에서 키를 다시 잰다. 달라졌으면 최소 크기를 주고 참.'''
         width = self.GetClientSize()[0]
         if width <= 0:
             return False
+        self.measured = width
         dc = wx.MemoryDC(wx.Bitmap(1, 1))
         gc = wx.GraphicsContext.Create(dc)
         height = self.run(gc, width)
@@ -553,7 +504,7 @@ class Body(Canvas):
         return True
 
     def on_size(self, event):
-        if self.measure() and self.on_layout:
+        if self.GetClientSize()[0] != self.measured and self.measure() and self.on_layout:
             self.on_layout()
         self.Refresh()
         event.Skip()
@@ -606,7 +557,6 @@ class Body(Canvas):
         zone = self.find(event.GetPosition())
         down, self.down = self.down, None
         self.Refresh()
-        # 누른 자리에서 놓아야 누른 것이다. 끌고 나가 놓으면 아무 일도 없다.
         if down and zone and zone.key == down and zone.action:
             zone.action()
 
@@ -620,10 +570,6 @@ class Body(Canvas):
 
 
 class BandHeader(PanelHeader):
-    '''판의 이름 띠에 오른쪽 끝 단추를 더한 것. 고르기 칸 묶음(Today·All) 또는 글자 단추 하나
-    (Reload). 꺾쇠+제목 단추와 오른쪽 단추가 따로 반응한다 — 띠의 다른 단추에 손을 얹었을 때
-    꺾쇠가 함께 밝아지면 안 된다(사용자). solo 면 본체 없는 띠 한 줄이라 접지 않는다 (Refresh).
-    부제 자리에는 글씨 대신 플랜 이름표를 둘 수 있다 (Overview).'''
 
     TAIL_GAP = 8
 
@@ -643,7 +589,6 @@ class BandHeader(PanelHeader):
         self.plans = []
         self.marked = None
         self.down_zone = None
-        # 툴팁은 꺾쇠+제목 위에서만 (on_track). 띠 전체에 걸면 오른쪽 단추 위에서도 Fold 가 뜬다.
         self.UnsetToolTip()
         self.update_height()
 
@@ -675,7 +620,6 @@ class BandHeader(PanelHeader):
             self.Refresh()
 
     def get_tail(self):
-        '''오른쪽 끝 단추들의 (열쇠, 글씨, 자리). 오른쪽 끝에서부터 쌓는다.'''
         if self.button:
             items = [('button', self.button)]
         else:
@@ -767,7 +711,6 @@ class BandHeader(PanelHeader):
         right = (tail[0][2].x - self.TAIL_GAP) if tail else width - PANEL_PAD
         for key, label, rect in tail:
             if key == 'button':
-                # 읽는 동안은 누를 수 없다. 글씨만 흐리게 — 폭이 변하면 띠가 밀린다.
                 face = theme if self.enabled else dict(theme, text=theme['faint'])
                 draw_button(gc, face, rect, label, self.get_state(key) if self.enabled else 'plain')
             else:
@@ -780,7 +723,6 @@ class BandHeader(PanelHeader):
         title = self.fit_text(gc, self.title, max(0, right - left))
         title_top = get_text_top(font, 0, HEADER_BAND)
         gc.DrawText(title, left, title_top)
-        # 부제는 제목과 기준선을 맞춘다. 글씨 크기가 달라 가운데로 맞추면 들떠 보인다.
         baseline = title_top + get_ink(font)[1]
         if self.solo:
             sub_left = left + gc.GetTextExtent(title)[0] + self.SUB_GAP
@@ -795,8 +737,6 @@ class BandHeader(PanelHeader):
                         baseline - get_ink(sub_font)[1])
 
     def draw_plans(self, gc, left, right, baseline):
-        '''지금 쓰는 플랜. 좁으면 줄을 바꾸지 않고 들어가는 데까지만 쓴다. 눌리지 않는 글씨라
-        테두리를 두르지 않는다 — 단추처럼 보이면 안 된다.'''
         theme = self.theme
         tag_font, name_font = get_font(SMALL, True), get_font(8)
         x = left
@@ -820,7 +760,6 @@ class BandHeader(PanelHeader):
 
 
 class Banner(Canvas):
-    '''색인을 처음 만드는 동안 판들 위에 뜨는 띠. 아래 판 사이 틈까지가 제 키다.'''
 
     HEIGHT = 8 + LINE[BODY] + 6 + BAR_HEIGHT + 8
 
@@ -866,7 +805,6 @@ class UsageBox(ScrollArea):
         self.last_git = 0
         self.last_clock = 0
         self.on_options = on_options
-        # 모을 때마다 같은 값을 받는 쪽 (떠 있는 위젯). mainapp 이 건다.
         self.on_data = None
         self.index = usageindex.UsageIndex()
         self.options = {
@@ -879,31 +817,25 @@ class UsageBox(ScrollArea):
             'wide': True,
         }
         self.data = None
-        # 첫 값으로 그린 뒤에야 참이다. 그 전의 단 나누기는 뼈대 키로 한 것이라 한 번 다시 나눈다.
         self.drawn = False
         self.login_state = None
-        # 고른 칸 (metric·grain·...). 설정에 남겨 다음에도 같은 모습으로 연다.
         stored = settings.get('usage_view') or {}
         self.view = {key: stored.get(key, value) if stored.get(key) in
                      [choice[0] for choice in CHOICES[key]] else value
                      for key, value in VIEW_DEFAULTS.items()}
         self.view.update(picked=None, showAll=False, showIdle=False, showHidden=False,
                          openSession=None)
-        # 접어 둔 판. 접고 펼 때마다 앱이 저장한다.
         self.folded = set(settings.get('usage_folded_sections') or [])
         self.brands = load_brands()
 
         self.build()
         self.bind_children()
         self.apply_theme(theme)
-        # 처음 모으기는 앱이 설정(켠 도구·통화)을 건넨 뒤에 한다. 그 전 값으로 모으면 버린다.
         wx.CallAfter(self.start)
 
     def start(self):
         self.ready = True
         self.reload(git=True)
-
-    # 판 ---------------------------------------------------------------
 
     def build(self):
         board = self.content
@@ -935,7 +867,6 @@ class UsageBox(ScrollArea):
         self.panels['refresh'] = Panel(board, self.palette, 'refresh', 'Refresh', [], self.folded,
                                        None, header=self.refresh_band)
 
-        # ScrollArea.set_panels 와 같은 짜임에 색인 띠를 판들 위에 한 줄 더한다.
         self.column_gap = PANEL_GAP
         self.root = wx.BoxSizer(wx.VERTICAL)
         self.root.AddSpacer(PANEL_MARGIN)
@@ -949,7 +880,6 @@ class UsageBox(ScrollArea):
         self.apply_sections()
 
     def apply_sections(self):
-        '''묶음 차례·숨김은 설정에서 온다. 머리판이 맨 앞, Refresh 가 맨 끝, 그 사이는 설정의 차례.'''
         sections = self.options.get('sections')
         middle = [key for key in self.panels if key not in ('header', 'refresh')]
         hidden = set()
@@ -959,8 +889,6 @@ class UsageBox(ScrollArea):
             hidden = {item['id'] for item in sections if item.get('hidden')}
         order = [key for key in ['header'] + middle + ['refresh'] if key not in hidden]
 
-        # 단을 다시 짜기 전에 판을 모두 떼어 낸다. 숨길 판이 단에 남은 채 단이 지워지면
-        # 그 판의 사이저까지 함께 지워진다.
         for item in list(self.row.GetChildren()):
             column = item.GetSizer()
             if column:
@@ -988,8 +916,6 @@ class UsageBox(ScrollArea):
             self.on_options()
 
     def relayout(self):
-        '''판 키가 바뀌었을 때. 단 나누기는 그대로 둔다 — 1 분마다 새로 그릴 때마다 다시
-        나누면 판이 단 사이를 오가며 튄다(사용자).'''
         self.relayout_pending = False
         self.content.Layout()
         self.fit()
@@ -997,9 +923,7 @@ class UsageBox(ScrollArea):
     relayout_pending = False
 
     def relayout_soon(self):
-        '''판이 제 크기 이벤트 안에서 키를 바꿨을 때. ★그 자리에서 다시 배치하면 바깥에서 돌던
-        배치가 옛 키로 덮어쓴다(실측: 키 191 인 판이 295 로 남았다). 다음 차례로 미루고,
-        여러 판이 한꺼번에 불러도 한 번만 한다.'''
+        # a layout inside a panel's own EVT_SIZE gets overwritten by the outer pass (measured)
         if not self.relayout_pending:
             self.relayout_pending = True
             wx.CallAfter(self.relayout)
@@ -1033,8 +957,6 @@ class UsageBox(ScrollArea):
             if hasattr(child, 'set_theme'):
                 child.set_theme(self.palette)
         self.Refresh()
-
-    # 값 --------------------------------------------------------------
 
     def money(self, value, digits=0):
         data = self.data or {}
@@ -1072,12 +994,9 @@ class UsageBox(ScrollArea):
             self.on_data(data)
 
     def on_reload(self):
-        # 단추 글씨는 그대로 둔다(폭이 변하면 띠가 밀린다). 읽는 중이라는 것은 부제가 말한다.
         self.refresh_band.set_enabled(False)
         self.refresh_band.set_subtitle('reading…')
         self.reload(force=True, git=True)
-
-    # 머리판 -------------------------------------------------------------
 
     def draw_header(self, p, width):
         data = self.data
@@ -1103,14 +1022,11 @@ class UsageBox(ScrollArea):
         p.text(notes[1], right, y, NOTE, 'dim', align='right', limit=half)
         return y + LINE[NOTE] + PAD
 
-    # 한도 ---------------------------------------------------------------
-
     def draw_empty(self, p, text, x, y, width):
         p.text(text, x + width / 2.0, y + 6, BODY, 'dim', align='center', limit=width)
         return y + 6 + LINE[BODY] + 6
 
     def draw_skeleton_rows(self, p, x, y, width, rows, left, right, gap):
-        '''한도·모델 뼈대: 이름 줄(왼쪽·오른쪽 토막) + 막대를 rows 번.'''
         for index in range(rows):
             if index:
                 y += gap
@@ -1136,7 +1052,6 @@ class UsageBox(ScrollArea):
         if status:
             y = self.draw_limit_note(p, x, y, span, status)
 
-        # 도구마다 묶는다. 묶음 머리에 아이콘·이름·플랜을 두므로 줄 이름의 "Codex · " 는 뗀다.
         plans = {plan['provider']: plan['name'] for plan in data.get('plans') or ()}
         groups = []
         for limit in limits:
@@ -1159,8 +1074,6 @@ class UsageBox(ScrollArea):
         return y + PAD
 
     def draw_limit_note(self, p, x, y, width, status):
-        '''서버에 못 물어 지난 값을 보일 때. 까닭을 위에 두고, 만료일 때만 Sign in 을 둔다 —
-        연결이 안 되는 것은 다시 로그인해도 풀리지 않는다.'''
         reason = ('Claude sign-in token expired.' if status.get('error') == 'expired'
                   else 'Could not reach Claude for plan limits.')
         if status.get('age') is None:
@@ -1186,7 +1099,6 @@ class UsageBox(ScrollArea):
         return y + height + PAD
 
     def draw_brand(self, p, provider, plan, x, y, width):
-        '''묶음 머리. Codex 아이콘은 바탕에 따라 흰·검정 두 벌을 갈아 쓴다.'''
         name = provider
         if provider == 'codex':
             name = 'codex-dark' if self.theme['titlebar_dark'] else 'codex-light'
@@ -1206,8 +1118,6 @@ class UsageBox(ScrollArea):
         return 'warn' if limit['severity'] == 'warning' else 'accent'
 
     def draw_limit(self, p, limit, x, y, width):
-        '''한 칸에 둘을 겹친다. 뒤의 옅은 막대가 창 전체 가운데 지나간 시간, 앞의 색 막대가
-        쓴 몫이다. 색 막대가 옅은 막대를 앞지르면 이대로는 창이 끝나기 전에 한도에 닿는다.'''
         tint = self.get_tint(limit)
         stale = limit.get('stale')
         p.fade = 0.45 if stale else 0.0
@@ -1236,7 +1146,6 @@ class UsageBox(ScrollArea):
             p.fill(tint, x, y, used, BAR_HEIGHT, BAR_RADIUS)
         y += BAR_HEIGHT
         if limit.get('reached') and limit.get('until'):
-            # 다 쓴 칸. 언제 다시 쓸 수 있는지가 이 줄에서 가장 궁금한 값이라 크게 둔다.
             y += 8
             base = p.baseline(HUGE, y, LINE[HUGE], True)
             left = x + p.text_on(countdown(limit['until']), x, base, HUGE, tint, True) + 8
@@ -1247,12 +1156,9 @@ class UsageBox(ScrollArea):
         return y
 
     def draw_resets(self, p, resets, x, y, width):
-        '''Codex 강제 초기화 이용권. 이용권마다 만료가 따로라 한 장씩 남은 시간을 둔다. 하루 안에
-        사라질 것은 주황 테두리에 '곧' 표시를 붙인다 (색만으로 가르지 않는다).'''
         if not resets:
             return y
         now = time.time()
-        # 1 분마다 다시 모으기 전에 만료된 것은 여기서 뺀다.
         credits = [credit for credit in resets['credits']
                    if not credit.get('expires') or credit['expires'] > now]
         p.fade = 0.45 if resets.get('stale') else 0.0
@@ -1280,7 +1186,6 @@ class UsageBox(ScrollArea):
                 chip = sum(p.width(text, NOTE, bold) for text, _, bold in parts) + 16
                 items.append((chip, lambda left, top, parts=parts, chip=chip, soon=soon, credit=credit:
                               self.draw_chip(p, parts, left, top, chip, soon, credit)))
-            # 웹판처럼 왼쪽부터 채운다 (가운데 맞춤 아님).
             y = flow(items, x, y, width, 6, 6, LINE[NOTE] + 4, center=False)
         p.fade = 0.0
         return y
@@ -1291,11 +1196,8 @@ class UsageBox(ScrollArea):
         p.rich(parts, left + 8, top + 2, NOTE)
         p.zone(left, top, width, height, 'credit:%s' % credit.get('title'), tip=credit.get('title'))
 
-    # 막대 그림 ----------------------------------------------------------
-
     def draw_chart(self, p, x, y, width, head_left, head_right, points, small=False, axis=None,
                    slotted=False):
-        '''머리 한 줄 + 막대 + 축. 축 라벨이 막대마다 하나면(slotted) 그 막대 가운데에 둔다.'''
         right_width = p.rich(head_right, x + width, y, SMALL, 'right') if head_right else 0
         p.rich(head_left, x, y, SMALL, limit=width - right_width - 8)
         y += LINE[SMALL] + 4
@@ -1312,8 +1214,6 @@ class UsageBox(ScrollArea):
         return left, int(round(x + stride * index + stride - SLOT_GAP)) - left
 
     def draw_bars(self, p, x, y, width, points, height):
-        '''막대 그림 한 장. points = [{value, title, key, now, picked, action}]. 0 에서 자라고,
-        음수가 있으면 0 선을 올려 그 아래로 주황. 축은 언제나 0 에서 시작한다 (막대 길이가 곧 값이다).'''
         values = [point['value'] for point in points]
         high, low = max([0] + values), min([0] + values)
         span = float(high - low) or 1.0
@@ -1340,7 +1240,6 @@ class UsageBox(ScrollArea):
                     top = zero
                 if p.body.hover == key:
                     colour = shade(colour, 1.2)
-                # 끝만 둥글다. 둥근 네모 위에 바닥 쪽을 네모로 덮는다.
                 radius = min(2, size / 2.0)
                 p.fill(colour, left, top, slot, size, radius)
                 if size > radius:
@@ -1358,7 +1257,6 @@ class UsageBox(ScrollArea):
                     left, slot = self.get_slot(x, width, len(labels), index)
                     p.text(label, left + slot / 2.0, y, TINY, 'dim', align='center')
             return
-        # 양 끝에 붙이고 사이는 고르게 (웹판의 space-between).
         widths = [p.width(label, TINY) for label in labels]
         gap = (width - sum(widths)) / float(max(1, len(labels) - 1))
         left = x
@@ -1371,8 +1269,6 @@ class UsageBox(ScrollArea):
         area = min(inner, CHART_MAX)
         return PAD + (inner - area) / 2.0, area
 
-    # 코드 산출 ----------------------------------------------------------
-
     def draw_code(self, p, width):
         data = self.data
         x, area = self.get_chart_area(width)
@@ -1380,7 +1276,6 @@ class UsageBox(ScrollArea):
         code = (data or {}).get('code') or {}
         days = sorted(code)
         if not days:
-            # 처음 git 을 세는 몇 초 동안은 뼈대를 그대로 둔다. 다 세고도 없을 때만 알린다.
             if data and data.get('repos'):
                 return self.draw_empty(p, 'no commits yet', PAD, y, width - PAD * 2) + PAD
             return self.draw_code_skeleton(p, x, y, area) + PAD
@@ -1399,7 +1294,6 @@ class UsageBox(ScrollArea):
                  'avg ' + self.money(average, 2)))
         y = self.draw_kpis(p, kpis, x, y, area)
 
-        # 지난 7 일의 하루 순증. 늘면 위로(파랑), 줄면 아래로(주황).
         base = to_date(today)
         week = [(base - datetime.timedelta(days=offset)).isoformat() for offset in range(6, -1, -1)]
         points = []
@@ -1420,8 +1314,6 @@ class UsageBox(ScrollArea):
         return y + LINE[NOTE] + PAD
 
     def draw_kpis(self, p, kpis, x, y, area):
-        '''세 칸. 아래 그림과 같은 폭에서 멈추고 가운데에 선다 — 넓은 창에서 셋이 양끝으로
-        흩어지지 않게.'''
         column = (area - 16) / 3.0
         for index, (caption, value, note) in enumerate(kpis):
             centre = x + index * (column + 8) + column / 2.0
@@ -1446,10 +1338,7 @@ class UsageBox(ScrollArea):
         p.fill('grid', x, y, area, CHART_HEIGHT, PANEL_RADIUS)
         return y + CHART_HEIGHT + 37
 
-    # 추세 ---------------------------------------------------------------
-
     def seg_items(self, p, name, split=False):
-        '''고르기 칸 묶음. split 이면 칸마다 따로 줄을 넘길 수 있게 하나씩 내준다.'''
         cells = []
         for value, label in CHOICES[name]:
             def draw(left, top, value=value, label=label):
@@ -1488,7 +1377,6 @@ class UsageBox(ScrollArea):
         first = min(buckets) if buckets else None
         for day, item in (data.get('code') or {}).items():
             key = bucket_of(day, grain)
-            # 쓰기 전의 옛 커밋까지 그리면 그림이 좌우로 갈라진다. 사용 기록이 시작된 뒤만.
             if first and key < first:
                 continue
             bucket = slot(key)
@@ -1538,7 +1426,6 @@ class UsageBox(ScrollArea):
                      'title': '%s  %s  %d requests  %s net lines' % (
                          bucket_label(point['key'], grain), fmt(point[metric], 2), point['calls'],
                          signed(point['net']))} for point in points]
-        # 돈(또는 토큰)과 순증 줄은 단위가 달라 한 축에 겹치지 않는다. 날짜 축을 맞춘 두 장.
         y = self.draw_chart(p, x, y, area,
                             [('%s · peak %s' % ('Cost' if metric == 'cost' else 'Tokens',
                                                 fmt(peak)), 'dim', False)],
@@ -1556,7 +1443,6 @@ class UsageBox(ScrollArea):
         return y + PAD
 
     def draw_heading(self, p, left, right, x, y, width, first=False):
-        '''내역의 소제목 한 줄. 오른쪽은 흐린 설명.'''
         if not first:
             y += 10
         right_width = p.text(right, x + width, y, NOTE, 'dim', align='right')
@@ -1564,7 +1450,6 @@ class UsageBox(ScrollArea):
         return y + LINE[NOTE] + 6
 
     def draw_meters(self, p, rows, top, formatter, x, y, width):
-        '''이름 92px | 막대 | 값. 줄마다 값 폭만큼 막대가 줄어든다 (웹판의 grid auto 칸).'''
         for row in rows:
             y += 4
             value = formatter(row)
@@ -1577,7 +1462,6 @@ class UsageBox(ScrollArea):
         return y
 
     def draw_breakdown(self, p, data, bucket, x, y, width):
-        '''고른 칸의 내역.'''
         panorama = [0, 0, 0, 0, 0]
         tools = {}
         for day in bucket['days']:
@@ -1625,8 +1509,6 @@ class UsageBox(ScrollArea):
             y = self.draw_empty(p, 'No commits for this period', x, y, width)
         return y
 
-    # 세션 ---------------------------------------------------------------
-
     def draw_sessions(self, p, width):
         data = self.data
         x, inner, y = PAD, width - PAD * 2, PAD
@@ -1648,7 +1530,6 @@ class UsageBox(ScrollArea):
         if view['sessionFilter'] == 'active':
             rows = live
         elif not view['showIdle']:
-            # 일 없는 세션은 접어 둔다. 살아 있는 것이 하나도 없으면 최근 것을 보인다.
             rows = live or rows
         shown = rows if view['showAll'] else rows[:SESSION_LIMIT]
         if not shown:
@@ -1692,17 +1573,14 @@ class UsageBox(ScrollArea):
         key = '%s:%s' % (item['provider'], item['session'])
         is_open = self.view['openSession'] == key
 
-        # 머리 줄: 도구 · 프로젝트 · 상태 · 지난 시각
         base = p.baseline(MAIN, y, LINE[MAIN], True)
         right = x + width - p.text_on(ago(item['last']), x + width, base, NOTE, 'dim', align='right') - 6
         left = x + p.provider(item['provider'], x, base) + 6
         state = item['state']
-        # 테두리 1 + 옆 여백 6 (웹판의 .chip).
         chip_width = p.width(state, SMALL, state == 'active') + 14
         chip_height = LINE[SMALL] + 4
         project = p.fit(item['project'] or '(no folder)', MAIN, True, max(0, right - left - 6 - chip_width))
         left += p.text_on(project, left, base, MAIN, bold=True) + 6
-        # 상태는 색만으로 말하지 않는다. 글자와 테두리 굵기도 다르다.
         tone = {'active': 'accent', 'waiting': 'warn'}.get(state, 'edge')
         chip_top = y + (LINE[MAIN] - chip_height) // 2
         p.rim(tone, left, chip_top, chip_width, chip_height)
@@ -1759,8 +1637,6 @@ class UsageBox(ScrollArea):
                    lambda: self.toggle_project('exclude', project))
         return y + LINE[NOTE]
 
-    # 활동 ---------------------------------------------------------------
-
     def draw_activity(self, p, width):
         data = self.data
         y = flow(self.seg_items(p, 'activity', split=True), PAD, PAD, width - PAD * 2,
@@ -1801,7 +1677,6 @@ class UsageBox(ScrollArea):
         p.zone(x0, y0, cell, cell, key, tip=tip)
 
     def draw_week_heat(self, p, activity, x, y, area):
-        '''날짜 × 시각. 칸은 12px 에서 멈추고 자리가 모자라면 그만큼 줄어든다.'''
         peak = max([1] + [value for row in activity['heat'] for value in row])
         label = max(p.width(short_day(day), TINY) for day in activity['days'])
         cells = min(area - label - 6, 24 * CELL_MAX + 23 * CELL_GAP)
@@ -1809,13 +1684,14 @@ class UsageBox(ScrollArea):
         box = label + 6 + cells
         left = x + (area - box) / 2.0
         grid = left + label + 6
+        shades = [self.get_shade(level) for level in range(LEVELS + 1)]
         for hour in range(0, 24, 6):
             p.text(str(hour), grid + hour * (size + CELL_GAP), y, TINY, 'dim', line=9)
         y += 9 + CELL_GAP
         for row, day in enumerate(activity['days']):
             p.text(short_day(day), left, y, TINY, 'dim', line=size)
             for hour, value in enumerate(activity['heat'][row]):
-                self.draw_cell(p, self.get_shade(get_level(value, peak)),
+                self.draw_cell(p, shades[get_level(value, peak)],
                                grid + hour * (size + CELL_GAP), y, size, 'heat:%d:%d' % (row, hour),
                                '%s %d:00  %s tok' % (short_day(day), hour, count(value)))
             y += size + CELL_GAP
@@ -1824,15 +1700,15 @@ class UsageBox(ScrollArea):
     def draw_calendar(self, p, activity, x, y, area):
         days = activity['calendar']
         peak = max([1] + [value for _, value in days])
-        # 일요일에서 시작하는 주. 첫 날 앞은 비워 둔다.
         first = (to_date(days[0][0]).weekday() + 1) % 7
         columns = int(math.ceil((first + len(days)) / 7.0))
         size = min(CELL_MAX, (area - CELL_GAP * (columns - 1)) / float(columns))
         box = columns * size + (columns - 1) * CELL_GAP
         left = x + (area - box) / 2.0
+        shades = [self.get_shade(level) for level in range(LEVELS + 1)]
         for index, (day, value) in enumerate(days):
             column, row = divmod(first + index, 7)
-            self.draw_cell(p, self.get_shade(get_level(value, peak)),
+            self.draw_cell(p, shades[get_level(value, peak)],
                            left + column * (size + CELL_GAP), y + row * (size + CELL_GAP), size,
                            'day:' + day, '%s  %s tok' % (day, count(value)))
         y += 7 * size + 6 * CELL_GAP
@@ -1890,7 +1766,6 @@ class UsageBox(ScrollArea):
                   '%d%%' % (js_round(row[1][1] / total_cost * 100) if total_cost else 0)]
                  for row in rows]
         heads = ('Tokens', 'Cost', 'Requests', '%')
-        # 이름 칸이 남는 폭을 다 쓰고, 숫자 네 칸은 가장 긴 값만큼씩 오른쪽 맞춤으로.
         widths = [max([p.width(heads[index], SMALL)] + [p.width(row[index], NOTE) for row in cells])
                   for index in range(4)]
         gap = max(8, (area - max(p.width(row[0], NOTE, True) for row in rows) - sum(widths)) / 4.0)
@@ -1913,8 +1788,6 @@ class UsageBox(ScrollArea):
             y += LINE[NOTE] + 4
         return self.draw_caption_row(p, 'Peak: ' + peak[0], '30d · %s total' % self.money(total_cost),
                                      x, y, area)
-
-    # 모델 ---------------------------------------------------------------
 
     def draw_models(self, p, width):
         data = self.data
@@ -1945,10 +1818,7 @@ class UsageBox(ScrollArea):
             y += BAR_HEIGHT
         return y + PAD
 
-    # 모으기 -------------------------------------------------------------
-
     def set_options(self, **options):
-        '''설정 페이지에서 오는 값(도구·통화·묶음 순서). 값이 바뀌는 것만 다시 모은다.'''
         if 'agents' in options:
             enabled = options['agents']
             options['agents'] = tuple(name for name in usageindex.AGENTS if enabled.get(name))
@@ -1970,7 +1840,6 @@ class UsageBox(ScrollArea):
                 'usage_view': {key: self.view[key] for key in VIEW_DEFAULTS}}
 
     def sign_in(self):
-        '''Claude 토큰 갱신. 조용한 갱신이 길면 수십 초라 실에서 돌린다.'''
         self.set_login_state('working')
         self.refreshing = True
 
@@ -1985,8 +1854,6 @@ class UsageBox(ScrollArea):
         if result == 'refreshed':
             self.reload(force=True)
         elif result == 'login':
-            # 사람이 터미널에서 로그인을 마칠 때까지 기다린다. 새 토큰이 보이면 바로 다시 묻는다.
-            # 서버가 401 로 거절한 토큰은 만료 시각이 아직 남아 있을 수 있다. 시각이 바뀐 것만 새 토큰이다.
             self.login_since = time.time()
             self.login_before = claudelogin.read_expiry()
             self.login_timer = wx.CallLater(LOGIN_POLL_MS, self.watch_login)
@@ -2001,7 +1868,6 @@ class UsageBox(ScrollArea):
             self.login_timer = wx.CallLater(LOGIN_POLL_MS, self.watch_login)
 
     def toggle_project(self, command, project):
-        '''Hide 는 세션 목록에서만 감추고, Exclude 는 모든 숫자에서 뺀다.'''
         key = 'excluded' if command == 'exclude' else 'hidden'
         values = [value for value in self.options[key] if value != project]
         if command != 'unhide':
@@ -2016,7 +1882,6 @@ class UsageBox(ScrollArea):
 
     def reload(self, force=False, git=False):
         if self.loading:
-            # 모으는 중에 무언가 바뀌면 끝난 뒤 한 번 더 모은다.
             self.pending = self.pending or force
             return
         self.loading = True
@@ -2039,12 +1904,9 @@ class UsageBox(ScrollArea):
                 wx.CallAfter(self.deliver, data)
         except Exception:
             traceback.print_exc()
-        # 화면을 건드리는 것은 주 실에서만.
         wx.CallAfter(self.settle)
 
     def count_orphans(self, callback):
-        '''지워진 기록 파일에서 와서 이제 색인에만 남은 요청 수와 금액. UNC 경로의
-        존재 확인이 느려 실에서 센다.'''
         def run():
             requests, cost = 0, 0.0
             try:
@@ -2059,7 +1921,6 @@ class UsageBox(ScrollArea):
         threading.Thread(target=run, daemon=True).start()
 
     def reset_index(self):
-        '''색인을 지우고 처음부터 다시 만든다. 모으는 중이면 끝난 뒤에.'''
         def run():
             with self.index.lock:
                 for suffix in ('', '-wal', '-shm'):
@@ -2072,15 +1933,11 @@ class UsageBox(ScrollArea):
 
     def settle(self):
         self.loading = False
-        # 읽다 실패해 값이 안 왔어도 단추는 다시 누를 수 있어야 한다.
         self.refresh_band.set_enabled(True)
-        # 미뤄 둔 것은 force 로 부른 것뿐이다. 그대로 force 로 돌려야 한도를 다시 묻는다 —
-        # 안 그러면 로그인 직후의 새 토큰이 5 분 캐시(CLAUDE_LIMITS_TTL) 뒤에 묻힌다.
         if self.pending:
             self.reload(force=True)
 
     def tick(self):
-        # 안 보여도 다시 읽는다. 떠 있는 위젯이 이 값을 쓴다.
         if self.ready and time.time() - self.last_run > AUTO_REFRESH:
             self.reload()
         if self.data and time.time() - self.last_clock > CLOCK_REFRESH:
@@ -2091,8 +1948,6 @@ class UsageBox(ScrollArea):
         self.keep_signed_in()
 
     def keep_signed_in(self):
-        '''Claude 토큰(수명 8 시간)이 곧 만료되면 조용히 갱신한다. 터미널 로그인은 띄우지 않는다 —
-        그건 사람이 Sign in 을 눌렀을 때만. 갱신 한 번마다 아주 작은 요청 하나가 사용량에 잡힌다.'''
         now = time.time()
         if not self.ready or self.refreshing or 'claude' not in self.options['agents']:
             return
@@ -2119,7 +1974,6 @@ class UsageBox(ScrollArea):
         threading.Thread(target=run, daemon=True).start()
 
     def take_refresh_slot(self, now):
-        '''24 시간 상한 안이면 이번 시도를 적고 참. 실에서 부른다(색인 쓰기가 기다릴 수 있다).'''
         recent = [stamp for stamp in (self.index.get_meta(AUTO_REFRESH_KEY) or [])
                   if now - stamp < 86400]
         if len(recent) >= AUTO_REFRESH_DAILY_CAP:

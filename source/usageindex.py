@@ -4,19 +4,9 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-에이전트 기록을 SQLite 한 벌로 색인한다. 사용량 페이지의 숫자는 모두 여기서
-나온다 (ccusage 를 부르지 않는다).
-
-기록 파일은 뒤에 줄이 붙기만 하므로 파일마다 읽은 바이트 자리를 외워 두고
-다음에는 그 뒤만 읽는다. 첫 색인은 Windows 와 WSL 양쪽 합쳐 수 GB 라 오래
-걸리지만 그 뒤로는 새로 붙은 줄만 읽는다.
-
-단가와 계산 방식은 WhereMyTokens(MIT) 의 `modelPricing.js` 를 옮겼다.
 '''
 
 
-import glob
 import hashlib
 import json
 import os
@@ -31,9 +21,11 @@ from datetime import timezone
 
 AGENTS = ('claude', 'codex', 'antigravity')
 
-# 이보다 적게 읽을 때는 진행률을 알리지 않는다. 1 분마다 붙는 몇 KB 에도 띠를 띄우면
-# 페이지 맨 위에 잠깐 끼었다 빠지면서 화면 전체가 번쩍이며 밀렸다 돌아온다.
+# the banner would flash and push the page down on every small append
 PROGRESS_MIN_BYTES = 8 * 1024 * 1024
+# WSL listings lag the file by seconds (up to 8 s measured) and local NTFS listings stay
+# stale while a writer holds the file, so only idle WSL files skip the stat
+REMOTE_IDLE = 10 * 60
 
 HOME = os.path.expanduser('~')
 WSL_HOME = r'\\wsl.localhost\ubuntu-24.04\root'
@@ -47,13 +39,11 @@ ROOTS = {
               os.path.join(WSL_HOME, '.codex', 'archived_sessions')),
 }
 
-# IDE 와 CLI 가 저마다 대화 목록을 따로 둔다. 토큰 기록은 없다.
 ANTIGRAVITY_DBS = tuple(os.path.join(HOME, '.gemini', name, 'conversation_summaries.db')
                         for name in ('antigravity', 'antigravity-cli'))
 
 INDEX_PATH = os.path.join(os.environ.get('APPDATA', HOME), 'PyWinAgent', 'usage-index.sqlite')
 
-# 색인을 고치는 방식이 바뀌면 올린다. 다르면 처음부터 다시 만든다.
 SCHEMA_VERSION = 1
 
 PER_MILLION = 1e6
@@ -62,7 +52,6 @@ GPT_56_PRICE_CUT = datetime(2026, 7, 30, tzinfo=timezone.utc).timestamp() * 1000
 SONNET_5_STANDARD = datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp() * 1000
 GPT_6_ASTRA_START = datetime(2026, 9, 3, tzinfo=timezone.utc).timestamp() * 1000
 
-# 백만 토큰당 (입력, 출력, 캐시 쓰기, 캐시 읽기).
 RATE = {
     'gpt6Astra': (10, 50, 12.5, 1),
     'gpt56Sol': (5, 30, 6.25, 0.5),
@@ -103,7 +92,6 @@ LONG_CONTEXT = 1000000
 
 
 def resolve_price(model, stamp):
-    '''(단가, 긴 문맥 할증 여부). 이름에 들어 있는 글자로 고른다.'''
     lower = (model or '').strip().lower()
     early = 0 < stamp < GPT_56_PRICE_CUT
     if lower == 'gpt-6-astra' and stamp >= GPT_6_ASTRA_START:
@@ -147,7 +135,6 @@ def resolve_price(model, stamp):
 
 
 def estimate_cost(model, stamp, fresh, output, written, read, written_long=0):
-    '''(달러, 캐시로 아낀 달러). 1시간 캐시 쓰기는 입력 단가의 두 배다.'''
     rates, long_context = resolve_price(model, stamp)
     prompt = fresh + written + read
     boost = long_context and prompt > LONG_CONTEXT_THRESHOLD
@@ -199,7 +186,6 @@ def classify_tool(name, arguments):
 
 
 def parse_stamp(text):
-    '''ISO 시각 → 밀리초. 못 읽으면 0.'''
     if not isinstance(text, str):
         return 0
     try:
@@ -230,11 +216,13 @@ CREATE TABLE IF NOT EXISTS entries (
     cost REAL, saved REAL);
 CREATE INDEX IF NOT EXISTS entries_ts ON entries (ts);
 CREATE INDEX IF NOT EXISTS entries_file ON entries (file);
+CREATE INDEX IF NOT EXISTS entries_session ON entries (session);
 CREATE TABLE IF NOT EXISTS tools (
     id TEXT PRIMARY KEY, file TEXT, provider TEXT, ts INTEGER, session TEXT,
     category TEXT, tokens REAL);
 CREATE INDEX IF NOT EXISTS tools_ts ON tools (ts);
 CREATE INDEX IF NOT EXISTS tools_file ON tools (file);
+CREATE INDEX IF NOT EXISTS tools_session ON tools (session);
 CREATE TABLE IF NOT EXISTS sessions (
     key TEXT PRIMARY KEY, provider TEXT, file TEXT, session TEXT, cwd TEXT,
     project TEXT, model TEXT, source TEXT, started INTEGER, last INTEGER,
@@ -253,7 +241,6 @@ WHERE excluded.input + excluded.output + excluded.cache_write + excluded.cache_r
 
 
 class Indexer:
-    '''파일 하나를 읽는 동안의 쓰기 묶음. 한 파일이 끝날 때마다 커밋한다.'''
 
     def __init__(self, db, path, provider, state):
         self.db = db
@@ -359,8 +346,7 @@ def read_codex_line(indexer, line):
             state['cwd'] = payload.get('cwd') or ''
             state['source'] = payload.get('originator') or payload.get('source') or ''
             state['created'] = parse_stamp(payload.get('timestamp'))
-            # 갈라져 나온 세션은 부모의 앞부분을 그대로 이어 적는다. 만들어진
-            # 시각 전의 기록은 부모가 이미 셌다.
+            # a fork repeats its parent's lines from before its own creation
             state['forked'] = bool(payload.get('forked_from_id'))
         return
     if kind == 'turn_context':
@@ -393,8 +379,7 @@ def read_codex_line(indexer, line):
         if payload.get('rate_limits'):
             state['rate_limits'] = payload['rate_limits']
             state['rate_stamp'] = stamp
-        # 새 판은 응답마다 token_usage_record 를 따로 적는다. 그쪽이 있으면
-        # token_count 는 같은 응답의 알림이라 세지 않는다.
+        # token_count repeats the token_usage_record newer logs write per response
         if state.get('structured'):
             return
         usage = info.get('last_token_usage') or {}
@@ -441,17 +426,25 @@ class UsageIndex:
 
     def list_files(self, provider):
         found = []
-        for root in ROOTS[provider]:
+
+        def walk(folder, remote):
             try:
-                if not os.path.isdir(root):
-                    continue
+                entries = list(os.scandir(folder))
             except OSError:
-                continue
-            found.extend(glob.glob(os.path.join(root, '**', '*.jsonl'), recursive=True))
+                return
+            for entry in entries:
+                if entry.name.startswith('.'):
+                    continue
+                if entry.is_dir():
+                    walk(entry.path, remote)
+                elif entry.name.lower().endswith('.jsonl'):
+                    found.append((entry.path, entry.stat() if remote else None))
+
+        for root in ROOTS[provider]:
+            walk(root, root.startswith('\\\\'))
         return found
 
     def update(self, on_progress=None):
-        '''새로 붙은 줄을 색인에 넣는다. 한 번에 하나만 돈다.'''
         with self.lock:
             db = self.connect()
             try:
@@ -463,13 +456,17 @@ class UsageIndex:
         known = {row[0]: row[1:] for row in
                  db.execute('SELECT path, size, mtime, offset, state FROM files')}
         work = []
+        now = time.time()
         for provider in READERS:
-            for path in self.list_files(provider):
+            for path, listed in self.list_files(provider):
+                previous = known.get(path)
+                if previous and listed and previous[0] == listed.st_size and \
+                        previous[1] == listed.st_mtime and now - listed.st_mtime > REMOTE_IDLE:
+                    continue
                 try:
                     stat = os.stat(path)
                 except OSError:
                     continue
-                previous = known.get(path)
                 if previous and previous[0] == stat.st_size and previous[1] == stat.st_mtime:
                     continue
                 work.append((provider, path, stat, previous))
@@ -482,7 +479,6 @@ class UsageIndex:
         for provider, path, stat, previous in work:
             offset = previous[2] if previous else 0
             state = json.loads(previous[3]) if previous and previous[3] else {}
-            # 줄어들었으면 다시 써진 파일이다. 이 파일에서 나온 것을 지우고 처음부터.
             if offset > stat.st_size:
                 for table in ('entries', 'tools'):
                     db.execute('DELETE FROM %s WHERE file = ?' % table, (path,))
@@ -500,7 +496,7 @@ class UsageIndex:
             with open(path, 'rb') as handle:
                 handle.seek(offset)
                 for line in handle:
-                    # 쓰다 만 마지막 줄은 다음에 다시 읽는다.
+                    # an unfinished last line is read again next time
                     if not line.endswith(b'\n'):
                         break
                     consumed += len(line)
@@ -555,13 +551,12 @@ class UsageIndex:
 
 
 def read_antigravity():
-    '''Antigravity 대화 목록. (대화 id, 마지막 시각 ms, 단계 수, 작업 폴더).'''
     rows = []
     for path in ANTIGRAVITY_DBS:
         if not os.path.exists(path):
             continue
         try:
-            # ★읽기 전용으로 연다. 앱이 쓰는 중인 DB 에 잠금을 걸지 않는다.
+            # read-only so the app's live database is never locked
             connection = sqlite3.connect('file:%s?mode=ro' % path, uri=True, timeout=2)
             try:
                 found = connection.execute(

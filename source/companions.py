@@ -4,9 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-창 바깥에서 사용량을 보이는 것. WhereMyTokens 의 떠 있는 Quota Pace 위젯을
-옮겼다. 사용량 페이지가 모을 때마다 같은 값을 받는다 (`update(data)`).
 '''
 
 
@@ -18,7 +15,6 @@ from utilities import mix
 
 
 def is_windows_dark():
-    '''Windows 앱 테마. 못 읽으면 어둡다고 본다 (이 앱의 기본값).'''
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                              r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
@@ -30,8 +26,6 @@ def is_windows_dark():
 
 
 class QuotaWidget(wx.Frame):
-    '''늘 위에 떠 있는 작은 창. 한도마다 쓴 몫과 지나간 시간을 겹친 막대 하나.
-    끌어 옮길 수 있고, 누르면 본 창을 연다. 오른쪽 단추로 숨긴다.'''
 
     WIDTH = 220
     ROW = 30
@@ -110,7 +104,6 @@ class QuotaWidget(wx.Frame):
                 gc.SetBrush(wx.Brush(mix(theme['grid'], theme['dim'], 0.45)))
                 gc.DrawRoundedRectangle(self.PADDING, bar_top,
                                         bar_width * limit['elapsed'] / 100.0, 5, 2.5)
-            # 쓴 몫이 지나간 시간을 앞지르면 이대로는 창이 끝나기 전에 닿는다.
             ahead = limit.get('elapsed') is not None and limit['percent'] > limit['elapsed']
             tint = theme['close'] if limit['severity'] == 'critical' else \
                 theme['warn'] if limit['severity'] == 'warning' or ahead else theme['accent']

@@ -28,18 +28,13 @@ from utilities import load_settings
 from utilities import save_settings
 
 
-# 시계가 아니라 설정 창이다. 타이틀바를 숨겼을 때 마우스를 알아채는 데만 쓰므로
-# 이 정도면 충분하다.
 TICK_INTERVAL = 150
 DEFAULT_SIZE = (460, 720)
 
-# 사이드 메뉴의 차례가 곧 페이지의 차례다. None 은 구분선이라 페이지가 없다.
 MENU_ITEMS = (('Usage', 'chart'), ('TTS', 'sound'), None, ('Settings', 'settings'))
 
-# 캡션을 떼고 그 자리를 직접 그린다. 크기 조절과 스냅은 그대로 남는다.
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
 
-# 기억된 위치가 이만큼도 화면에 안 걸리면 사라진 모니터로 본다.
 MIN_VISIBLE_WIDTH = 120
 MIN_VISIBLE_HEIGHT = 32
 
@@ -47,9 +42,7 @@ MIN_VISIBLE_HEIGHT = 32
 class MainFrame(wx.Frame):
 
     stored_rect = None
-    # 생성이 끝나기 전에는 저장하지 않는다. 창 자리를 되살리기 전이라 빈 값이 덮인다.
     started = False
-    # 흉내 낸 최대화 이전의 자리. None 이면 최대화 상태가 아니다.
     restore_bounds = None
 
     def __init__(self):
@@ -66,7 +59,6 @@ class MainFrame(wx.Frame):
 
         self.set_icon()
 
-        # 접어 둔 판의 키 (TTS·설정 페이지 공용). 접고 펼 때마다 바로 저장한다.
         self.folds = set(settings.get('folded_panels', []))
 
         self.book = wx.Simplebook(self)
@@ -84,7 +76,6 @@ class MainFrame(wx.Frame):
 
         self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
         self.sidemenu = SideMenu(self, theme, MENU_ITEMS, self.on_select)
-        # 서랍은 페이지 위에 떠 있다. 페이지 쪽이 형제를 클립해 주어야 살아남는다.
         apply_clip_siblings(self.book)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -107,7 +98,6 @@ class MainFrame(wx.Frame):
         self.started = True
 
     def is_rect_visible(self, rect):
-        # 모니터 구성이 바뀌면 기억된 좌표가 아무 화면에도 안 걸릴 수 있다.
         for index in range(wx.Display.GetCount()):
             shared = wx.Display(index).GetClientArea().Intersect(rect)
             if shared.width >= MIN_VISIBLE_WIDTH and shared.height >= MIN_VISIBLE_HEIGHT:
@@ -156,14 +146,12 @@ class MainFrame(wx.Frame):
         self.sidemenu.toggle()
 
     def on_select(self, index):
-        # 페이지를 떠나면 미뤄 둔 저장을 먼저 끝낸다.
         self.ttsbox.flush()
         self.book.SetSelection(index)
         self.on_tick(None)
 
     def toggle_maximize(self):
-        '''캡션이 없는 창을 Windows 가 최대화하면 보이지 않는 여백만큼 화면
-        밖으로 넘치고 작업 표시줄까지 덮는다. 작업 영역에 맞춰 직접 채운다.'''
+        # Windows maximizes a captionless frame past the work area and over the taskbar
         if self.restore_bounds is not None:
             bounds, self.restore_bounds = self.restore_bounds, None
             self.SetRect(wx.Rect(*bounds))
@@ -178,7 +166,6 @@ class MainFrame(wx.Frame):
         self.titlebar.set_maximized(self.restore_bounds is not None)
 
     def on_maximize(self, event):
-        # 화면 위로 던지거나 Win+Up 을 눌러도 같은 자리에 오도록 되돌려 잡는다.
         if not self.IsMaximized():
             return
         self.Maximize(False)
@@ -227,7 +214,6 @@ class MainFrame(wx.Frame):
         self.store_settings()
 
     def on_usage(self, data):
-        '''사용량 페이지가 새로 모을 때마다. 떠 있는 위젯이 같은 값을 받는다.'''
         self.last_data = data
         if self.widget is not None:
             self.widget.update(data)
@@ -259,7 +245,6 @@ class MainFrame(wx.Frame):
         page = self.book.GetCurrentPage()
         if page is not None:
             page.tick()
-        # 알림과 트레이는 사용량 페이지를 안 보고 있어도 새 값을 받아야 한다.
         if page is not self.usagebox:
             self.usagebox.tick()
 
@@ -284,10 +269,10 @@ class MainFrame(wx.Frame):
 
     def on_close(self, event):
         self.timer.Stop()
-        # 마우스를 잡은 채로 창이 사라지면 나중에 죽는다. 먼저 놓게 한다.
+        # the drawer's capture and slide timer crash a closing frame (0xc0000374)
         self.sidemenu.close()
+        self.sidemenu.timer.Stop()
         self.ttsbox.flush()
-        # 최소화/최대화 상태의 좌표를 저장하면 다음 실행이 이상해진다.
         if self.restore_bounds is not None:
             self.stored_rect = list(self.restore_bounds)
         elif self.IsIconized() is False and self.IsMaximized() is False:

@@ -4,8 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-시작 메뉴에 PyWinAgent 링크를 만든다. pythonw.exe 로 source/main.pyw 를 실행한다.
 '''
 
 

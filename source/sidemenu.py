@@ -4,16 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-햄버거로 여닫는 메뉴. 탭 바를 대신해 페이지를 고른다. 사이저에 담지 않고
-페이지 위에 띄워 두었다가 왼쪽에서 밀어 넣는다.
-
-★세로로 창 전체를 덮지 않는다. 높이는 항목이 정하고 헤더 바로 아래 왼쪽
-끝에 붙는다 — 가리는 페이지 면적이 그만큼 줄어든다. 아래에 붙이던 항목은
-구분선으로 갈라 놓는다(PyWinAgent 의 menubox 와 같은 짜임새).
-
-열려 있는 동안 마우스를 잡아 둔다. 바깥을 누르면 닫히고, 그 누름은
-아래로 넘기지 않는다. 햄버거를 다시 누르는 것도 바깥 누름이라 그대로 닫힌다.
 '''
 
 
@@ -36,7 +26,6 @@ class SideMenu(Canvas):
     ICON_LEFT = 24
     LABEL_LEFT = 44
 
-    # 밀려 들어오는 속도. 남은 거리의 일정 비율씩 좁혀 끝에서 부드럽게 선다.
     STEP = 12
     EASING = 0.34
 
@@ -58,8 +47,7 @@ class SideMenu(Canvas):
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_capture_lost)
-        # 지우기 없이 손으로 칠하는 창이라, 처음 보일 때는 한 번도 칠해 본 적이 없어
-        # 빈 바탕(흰색)이 잠깐 비친다. 화면 밖(-WIDTH)에 있는 동안 미리 한 번 칠해 둔다.
+        # paint once while hidden so the first open does not flash white
         wx.CallAfter(self.warm_up)
 
     def warm_up(self):
@@ -91,7 +79,6 @@ class SideMenu(Canvas):
         self.opened = True
         self.Show()
         self.Raise()
-        # 보이자마자 칠한다. 다음 그리기 차례를 기다리는 사이 빈 바탕이 보이지 않게.
         self.Update()
         if not self.HasCapture():
             self.CaptureMouse()
@@ -126,7 +113,6 @@ class SideMenu(Canvas):
         return 0 <= position.x < width and 0 <= position.y < height
 
     def get_page(self, index):
-        '''구분선을 뺀 차례가 곧 페이지의 차례다.'''
         return sum(1 for item in self.items[:index] if item)
 
     def get_item_rect(self, index):
@@ -166,8 +152,8 @@ class SideMenu(Canvas):
             self.hovered = -1
             self.Refresh()
 
+    # releasing a capture that is already lost asserts
     def on_capture_lost(self, event):
-        # 이미 놓친 캡처를 다시 놓으면 assertion 이 뜬다. 상태만 되돌린다.
         if self.opened:
             self.opened = False
             self.hovered = -1
@@ -179,9 +165,6 @@ class SideMenu(Canvas):
         gc.SetBrush(wx.Brush(wx.Colour(theme['bg'])))
         gc.DrawRectangle(0, 0, width, height)
 
-        # 창 전체를 덮지 않으니 서랍의 오른쪽 한 줄이 아니라 네 변으로 경계를 알린다.
-        # ★선으로 그으면 왼쪽과 위가 두 픽셀에 반씩 걸쳐 오른쪽·아래보다 굵어
-        # 보인다(안티에일리어싱). 1px 채우기로 네 변을 같은 굵기로 세운다.
         gc.SetBrush(wx.Brush(wx.Colour(theme['rim'])))
         gc.DrawRectangle(0, 0, 1, height)
         gc.DrawRectangle(width - 1, 0, 1, height)
@@ -218,7 +201,6 @@ class SideMenu(Canvas):
             gc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, self.RADIUS)
 
         if active:
-            # 고른 줄을 알리는 왼쪽 짧은 막대. Windows 11 탐색 창과 같은 표시다.
             bar = rect.height * 0.40
             gc.SetBrush(wx.Brush(wx.Colour(theme['accent'])))
             gc.DrawRoundedRectangle(rect.x + 2, rect.y + (rect.height - bar) / 2,

@@ -4,14 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-에이전트가 일한 저장소의 커밋 통계 (사용량 페이지의 Code Output).
-
-저장소는 세션 기록의 작업 폴더에서 찾는다. 각 저장소의 `user.email` 로 쓴
-커밋만 센다. WSL 쪽 폴더(`/` 로 시작)는 `\\\\wsl.localhost` 로 건너가 Windows
-git 을 돌리면 수십 배 느려서 `wsl.exe` 안의 git 을 부른다.
-
-결과는 브랜치 끝 해시들을 열쇠로 저장해 두고, 바뀐 저장소만 다시 센다.
 '''
 
 
@@ -20,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 
 from usageindex import HOME
 
@@ -27,8 +20,8 @@ from usageindex import HOME
 CACHE_PATH = os.path.join(os.environ.get('APPDATA', HOME), 'PyWinAgent', 'git-stats.json')
 WSL_DISTRO = 'Ubuntu-24.04'
 MARKER = '@@'
+GIT_JOBS = 6
 
-# WhereMyTokens 의 pathClassifier 를 옮겼다. 위에서부터 먼저 맞는 것.
 PATH_RULES = (
     ('vendor', (r'(^|/)(node_modules|vendor|third[_-]?party|\.yarn|bower_components)/',)),
     ('test_code', (r'(\.|^)(test|spec)\.[a-z0-9]+$', r'(^|/)(tests?|__tests__)/')),
@@ -56,6 +49,7 @@ def classify_path(path):
 
 def run_git(cwd, *args, timeout=60):
     if cwd.startswith('/') and os.name == 'nt':
+        # git over \\wsl.localhost is tens of times slower than git inside WSL
         command = ['wsl.exe', '-d', WSL_DISTRO, '-e', 'git', '-C', cwd] + list(args)
     else:
         command = ['git', '-C', cwd] + list(args)
@@ -70,13 +64,29 @@ def run_git(cwd, *args, timeout=60):
     return done.stdout.decode('utf-8', 'replace')
 
 
+def run_parallel(function, items):
+    # threads, not asyncio or concurrent.futures: those imports cost 4-7 MB here (measured)
+    results = [None] * len(items)
+    jobs = threading.Semaphore(GIT_JOBS)
+
+    def work(index, item):
+        with jobs:
+            results[index] = function(item)
+
+    threads = [threading.Thread(target=work, args=(index, item), daemon=True)
+               for index, item in enumerate(items)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return results
+
+
 def find_repo(cwd):
-    '''(최상위 폴더, 저장소 열쇠). 저장소가 아니면 None.'''
     output = run_git(cwd, 'rev-parse', '--show-toplevel', timeout=15)
     if not output:
         return None
     top = output.strip()
-    # WSL git 은 리눅스 경로, Windows git 은 C:/... 로 돌려준다. 그대로 쓴다.
     return top
 
 
@@ -88,7 +98,6 @@ def get_heads(top):
 
 
 def read_log(top):
-    '''날짜마다 {commits, added, removed, paths: {분류: [added, removed]}}.'''
     email = (run_git(top, 'config', 'user.email', timeout=15) or '').strip()
     args = ['log', '--branches', '--no-merges', '--date=short',
             '--format=' + MARKER + '%ad', '--numstat']
@@ -108,7 +117,6 @@ def read_log(top):
         parts = line.split('\t')
         if day is None or len(parts) != 3:
             continue
-        # 바이너리 파일은 줄 수 자리에 '-' 가 온다.
         if not parts[0].isdigit() or not parts[1].isdigit():
             continue
         added, removed = int(parts[0]), int(parts[1])
@@ -138,33 +146,27 @@ def save_cache(cache):
 
 
 def collect(folders):
-    '''작업 폴더들 → 저장소별 날짜 통계. 바뀌지 않은 저장소는 저장해 둔 것을 쓴다.'''
     cache = load_cache()
-    repos = {}
-    for folder in folders:
-        if not folder:
-            continue
-        top = cache['folders'].get(folder)
-        if top is None:
-            # 저장소가 아닌 폴더는 외우지 않는다. WSL 이 잠깐 꺼져 있던 것일 수 있다.
-            top = find_repo(folder)
-            if top:
-                cache['folders'][folder] = top
+    folders = [folder for folder in folders if folder]
+    unknown = list(dict.fromkeys(folder for folder in folders
+                                 if cache['folders'].get(folder) is None))
+    for folder, top in zip(unknown, run_parallel(find_repo, unknown)):
         if top:
-            repos[top] = True
+            cache['folders'][folder] = top
+    repos = list(dict.fromkeys(cache['folders'][folder] for folder in folders
+                               if cache['folders'].get(folder)))
+
+    heads = run_parallel(get_heads, repos)
+    stale = [(top, head) for top, head in zip(repos, heads) if head is not None and
+             (cache['repos'].get(top) or {}).get('heads') != head]
+    for (top, head), days in zip(stale, run_parallel(read_log, [top for top, _ in stale])):
+        if days is not None:
+            cache['repos'][top] = {'heads': head, 'days': days}
 
     result = {}
-    for top in repos:
-        heads = get_heads(top)
-        if heads is None:
-            continue
+    for top, head in zip(repos, heads):
         stored = cache['repos'].get(top)
-        if not stored or stored.get('heads') != heads:
-            days = read_log(top)
-            if days is None:
-                continue
-            stored = {'heads': heads, 'days': days}
-            cache['repos'][top] = stored
-        result[top] = stored['days']
+        if head is not None and stored and stored.get('heads') == head:
+            result[top] = stored['days']
     save_cache(cache)
     return result
