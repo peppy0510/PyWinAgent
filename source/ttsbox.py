@@ -18,6 +18,7 @@ from controls import Panel
 from controls import ScrollArea
 from controls import SettingCard
 from controls import SliderCard
+from utilities import call_painted
 
 SAVE_DELAY = 500
 
@@ -93,7 +94,7 @@ class TtsBox(ScrollArea):
 
     def load_voices(self):
         voices, online = ttsconfig.list_voices()
-        wx.CallAfter(self.set_voices, voices, online)
+        call_painted(self, self.set_voices, voices, online)
 
     def set_voices(self, voices, online):
         if not self:

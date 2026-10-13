@@ -34,6 +34,7 @@ from utilities import PANEL_MARGIN
 from utilities import PANEL_PAD
 from utilities import PANEL_RADIUS
 from utilities import Canvas
+from utilities import call_painted
 from utilities import draw_card_rim
 from utilities import draw_chevron
 from utilities import fill_rect
@@ -1845,7 +1846,7 @@ class UsageBox(ScrollArea):
 
         def run():
             result = claudelogin.sign_in()
-            wx.CallAfter(self.after_sign_in, result)
+            call_painted(self, self.after_sign_in, result)
         threading.Thread(target=run, daemon=True).start()
 
     def after_sign_in(self, result):
@@ -1895,16 +1896,16 @@ class UsageBox(ScrollArea):
 
     def gather(self, options, git, force):
         try:
-            self.index.update(lambda value: wx.CallAfter(self.set_progress, value))
-            wx.CallAfter(self.set_progress, None)
+            self.index.update(lambda value: call_painted(self, self.set_progress, value))
+            call_painted(self, self.set_progress, None)
             data = dashboard.build(self.index, options, fresh_limits=force)
-            wx.CallAfter(self.deliver, data)
+            call_painted(self, self.deliver, data)
             if git:
                 data = dashboard.build(self.index, options, refresh_git=True)
-                wx.CallAfter(self.deliver, data)
+                call_painted(self, self.deliver, data)
         except Exception:
             traceback.print_exc()
-        wx.CallAfter(self.settle)
+        call_painted(self, self.settle)
 
     def count_orphans(self, callback):
         def run():
@@ -1928,7 +1929,7 @@ class UsageBox(ScrollArea):
                         os.remove(self.index.path + suffix)
                     except OSError:
                         pass
-            wx.CallAfter(self.reload, True, True)
+            call_painted(self, self.reload, True, True)
         threading.Thread(target=run, daemon=True).start()
 
     def settle(self):
@@ -1970,7 +1971,7 @@ class UsageBox(ScrollArea):
                     refreshed = bool(claude) and claudelogin.refresh(claude)
             except Exception:
                 traceback.print_exc()
-            wx.CallAfter(self.after_auto_refresh, refreshed)
+            call_painted(self, self.after_auto_refresh, refreshed)
         threading.Thread(target=run, daemon=True).start()
 
     def take_refresh_slot(self, now):

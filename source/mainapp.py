@@ -8,6 +8,8 @@ email: peppy0510@hotmail.com
 
 
 import os
+import threading
+import time
 import wx
 
 from companions import QuotaWidget
@@ -25,6 +27,7 @@ from utilities import apply_titlebar_theme
 from utilities import get_asset_path
 from utilities import get_frame_margins
 from utilities import load_settings
+from utilities import paint_now
 from utilities import save_settings
 
 
@@ -37,6 +40,33 @@ FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
 
 MIN_VISIBLE_WIDTH = 120
 MIN_VISIBLE_HEIGHT = 32
+
+
+class Pacer(threading.Thread):
+    # WM_TIMER starves while the mouse keeps moving; a thread keeps the beat
+
+    def __init__(self, frame):
+        super().__init__(name='tick-pacer', daemon=True)
+        self.frame = frame
+        self.running = True
+        self.pending = False
+
+    def run(self):
+        interval = TICK_INTERVAL / 1000
+        target = time.perf_counter()
+        while self.running:
+            target += interval
+            delay = target - time.perf_counter()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                target = time.perf_counter()
+            if not self.pending:
+                self.pending = True
+                try:
+                    wx.CallAfter(self.frame.on_tick)
+                except Exception:
+                    return
 
 
 class MainFrame(wx.Frame):
@@ -86,14 +116,13 @@ class MainFrame(wx.Frame):
         self.apply_theme()
         self.on_settings()
 
-        self.timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.on_tick)
+        self.pacer = Pacer(self)
         self.Bind(wx.EVT_SIZE, self.on_size)
         self.Bind(wx.EVT_MAXIMIZE, self.on_maximize)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char)
         self.Bind(wx.EVT_CLOSE, self.on_close)
-        self.timer.Start(TICK_INTERVAL)
-        self.on_tick(None)
+        self.pacer.start()
+        self.on_tick()
         self.restore_rect(settings)
         self.started = True
 
@@ -148,7 +177,7 @@ class MainFrame(wx.Frame):
     def on_select(self, index):
         self.ttsbox.flush()
         self.book.SetSelection(index)
-        self.on_tick(None)
+        self.on_tick()
 
     def toggle_maximize(self):
         # Windows maximizes a captionless frame past the work area and over the taskbar
@@ -241,7 +270,11 @@ class MainFrame(wx.Frame):
         self.sidemenu.place(TitleBar.HEIGHT)
         event.Skip()
 
-    def on_tick(self, event):
+    def on_tick(self):
+        # a queued call can arrive after close; a destroyed window is falsy
+        if not self:
+            return
+        self.pacer.pending = False
         page = self.book.GetCurrentPage()
         if page is not None:
             page.tick()
@@ -249,6 +282,9 @@ class MainFrame(wx.Frame):
             self.usagebox.tick()
 
         self.titlebar.set_menu_open(self.sidemenu.is_open())
+        paint_now(self)
+        if self.widget is not None:
+            paint_now(self.widget)
 
     def store_settings(self):
         if not self.started:
@@ -268,7 +304,7 @@ class MainFrame(wx.Frame):
                                             len(options['hidden_projects']))
 
     def on_close(self, event):
-        self.timer.Stop()
+        self.pacer.running = False
         # the drawer's capture and slide timer crash a closing frame (0xc0000374)
         self.sidemenu.close()
         self.sidemenu.timer.Stop()
