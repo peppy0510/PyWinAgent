@@ -7,6 +7,7 @@ email: peppy0510@hotmail.com
 '''
 
 
+import base64
 import glob
 import json
 import os
@@ -31,6 +32,8 @@ ANTIGRAVITY_DBS = tuple(
 AGENTS = ('claude', 'codex', 'antigravity')
 
 USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+
+CLAUDE_PROFILE = os.path.join(os.path.expanduser('~'), '.claude.json')
 
 CREDENTIALS = (
     os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json'),
@@ -149,6 +152,28 @@ def get_plan_name():
     if found and kind == 'max':
         name += ' %sx' % found.group(1)
     return name
+
+
+def get_claude_account():
+    try:
+        with open(CLAUDE_PROFILE, encoding='utf-8') as file:
+            account = json.load(file).get('oauthAccount') or {}
+    except Exception:
+        return None, None
+    return account.get('displayName') or None, account.get('emailAddress') or None
+
+
+def get_codex_account():
+    for path in CODEX_AUTHS:
+        try:
+            with open(path, encoding='utf-8') as file:
+                payload = json.load(file)['tokens']['id_token'].split('.')[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+        except Exception:
+            continue
+        if claims.get('name') or claims.get('email'):
+            return claims.get('name') or None, claims.get('email') or None
+    return None, None
 
 
 def ask_limits(token):

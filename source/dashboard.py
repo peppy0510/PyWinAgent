@@ -215,12 +215,16 @@ def get_plans(index, options):
     if 'claude' in options['agents']:
         name = usagedata.get_plan_name()
         if name:
-            plans.append({'provider': 'claude', 'name': name})
+            account, email = usagedata.get_claude_account()
+            plans.append({'provider': 'claude', 'name': name, 'account': account,
+                          'email': email})
     if 'codex' in options['agents']:
         stored = index.get_meta('codex_limits') or {}
         kind = (stored.get('limits') or {}).get('plan_type')
         if kind:
-            plans.append({'provider': 'codex', 'name': kind.replace('_', ' ').title()})
+            account, email = usagedata.get_codex_account()
+            plans.append({'provider': 'codex', 'name': kind.replace('_', ' ').title(),
+                          'account': account, 'email': email})
     return plans
 
 

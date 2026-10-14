@@ -115,6 +115,13 @@ def draw_close(gc, cx, cy, size, colour, width):
     gc.StrokeLine(cx - arm, cy + arm, cx + arm, cy - arm)
 
 
+def draw_person(gc, cx, cy, size, colour, width):
+    gc.DrawEllipse(cx - size * 0.19, cy - size * 0.44, size * 0.38, size * 0.38)
+    path = gc.CreatePath()
+    path.AddArc(cx, cy + size * 0.46, size * 0.36, math.radians(180), math.radians(360), True)
+    gc.StrokePath(path)
+
+
 HANDLERS = {
     'sound': draw_sound,
     'chart': draw_chart,
@@ -124,4 +131,5 @@ HANDLERS = {
     'maximize': draw_maximize,
     'restore': draw_restore,
     'close': draw_close,
+    'person': draw_person,
 }

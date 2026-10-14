@@ -17,6 +17,7 @@ import wx
 
 import claudelogin
 import dashboard
+import icons
 import usageindex
 
 from controls import PanelHeader
@@ -58,6 +59,7 @@ CLOCK_REFRESH = 15
 
 BRAND_ICONS = ('claude', 'codex-dark', 'codex-light')
 BRAND_SIZE = 14
+ACCOUNT_ICON = 9
 
 TINY = 7
 SMALL = 7.5
@@ -1053,7 +1055,7 @@ class UsageBox(ScrollArea):
         if status:
             y = self.draw_limit_note(p, x, y, span, status)
 
-        plans = {plan['provider']: plan['name'] for plan in data.get('plans') or ()}
+        plans = {plan['provider']: plan for plan in data.get('plans') or ()}
         groups = []
         for limit in limits:
             provider = limit.get('provider') or 'claude'
@@ -1065,7 +1067,7 @@ class UsageBox(ScrollArea):
                 y += PAD
                 p.fill('rim', x, y, span, 1)
                 y += 1 + PAD
-            y = self.draw_brand(p, provider, plans.get(provider, ''), x, y, span)
+            y = self.draw_brand(p, provider, plans.get(provider) or {}, x, y, span)
             for order, limit in enumerate(rows):
                 if order:
                     y += PAD
@@ -1110,7 +1112,20 @@ class UsageBox(ScrollArea):
             left += BRAND_SIZE + 7
         base = p.baseline(BODY, y, LINE[BODY], True)
         left += p.text_on(AGENT_NAMES.get(provider, provider), left, base, BODY, bold=True) + 7
-        p.text_on(plan, left, base, NOTE, 'dim', limit=x + width - left)
+        left += p.text_on(plan.get('name', ''), left, base, NOTE, 'dim', limit=x + width - left)
+        if plan.get('account'):
+            right = x + width
+            shown = p.text_on(plan['account'], right, base, NOTE, 'dim', align='right',
+                              limit=right - left - 12 - ACCOUNT_ICON - 4)
+            if shown:
+                icon = right - shown - 4 - ACCOUNT_ICON
+                ink_top, ink_bottom = get_ink(get_font(NOTE))
+                icons.draw_glyph(p.gc, 'person', icon + ACCOUNT_ICON / 2.0,
+                                 base - (ink_bottom - ink_top) / 2.0, ACCOUNT_ICON,
+                                 p.colour('dim'))
+                if plan.get('email'):
+                    p.zone(icon, y, right - icon, LINE[BODY], 'account:' + provider,
+                           tip=plan['email'])
         return y + LINE[BODY] + 10
 
     def get_tint(self, limit):
