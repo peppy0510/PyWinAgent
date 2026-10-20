@@ -1,4 +1,6 @@
+numpy
 pillow
 psutil
 pywin32
+supertonic
 wxpython

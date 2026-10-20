@@ -7,19 +7,28 @@ email: peppy0510@hotmail.com
 '''
 
 
+import glob
 import json
 import os
 import subprocess
-import urllib.request
+import sys
 
 
-WSL_ROOT = r'\\wsl.localhost\ubuntu-24.04\var\www\agent-toolkit\tts'
+APPDATA = os.environ.get('APPDATA', os.path.expanduser('~'))
+LOCALAPPDATA = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
 
 SETTINGS_PATH = os.environ.get('PYWINAGENT_TTS_SETTINGS',
-                               os.path.join(WSL_ROOT, 'settings.json'))
-SPEAK_SCRIPT = os.environ.get('PYWINAGENT_TTS_SPEAK',
-                              os.path.join(WSL_ROOT, 'speak.ps1'))
-SERVER_URL = os.environ.get('PYWINAGENT_TTS_URL', 'http://127.0.0.1:18000')
+                               os.path.join(APPDATA, 'PyWinAgent', 'tts.json'))
+MODEL_NAME = 'supertonic-3'
+MODEL_DIR = os.environ.get('PYWINAGENT_TTS_MODEL',
+                           os.path.join(LOCALAPPDATA, 'PyWinAgent', 'supertonic3'))
+# clone voices live outside the model folder because a model download replaces it whole
+VOICES_DIR = os.environ.get('PYWINAGENT_TTS_VOICES',
+                            os.path.join(APPDATA, 'PyWinAgent', 'voices'))
+SPEAK_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ttsspeak.py')
+
+ONNX_FILES = ('duration_predictor.onnx', 'text_encoder.onnx',
+              'vector_estimator.onnx', 'vocoder.onnx')
 
 SAMPLE_TEXT = '안녕하세요. 지금 이 목소리로 알림을 읽어 드립니다.'
 
@@ -91,15 +100,15 @@ def load():
 
 
 def save(values, raw):
-    # untouched defaults stay out of the file so speak.ps1 defaults can still change
+    # untouched defaults stay out of the file so the speaker defaults can still change
     merged = dict(raw)
     for key, value in values.items():
         if key in raw or value != DEFAULTS.get(key):
             merged[key] = value
 
-    path = SETTINGS_PATH
     try:
-        with open(path, 'w', encoding='utf-8') as file:
+        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+        with open(SETTINGS_PATH, 'w', encoding='utf-8') as file:
             json.dump(merged, file, ensure_ascii=False, indent=2)
             file.write('\n')
     except Exception as error:
@@ -107,28 +116,61 @@ def save(values, raw):
     return None
 
 
+def has_model():
+    return all(os.path.exists(os.path.join(MODEL_DIR, 'onnx', name)) for name in ONNX_FILES)
+
+
+def list_custom_voices():
+    paths = glob.glob(os.path.join(VOICES_DIR, '*.json'))
+    return {os.path.splitext(os.path.basename(path))[0]: path for path in paths}
+
+
 def list_voices():
-    try:
-        with urllib.request.urlopen(SERVER_URL + '/v1/styles', timeout=3) as response:
-            styles = json.loads(response.read().decode('utf-8')).get('styles', [])
-    except Exception:
+    if not has_model():
         return list(BUILTIN_VOICES), False
+    names = [os.path.splitext(os.path.basename(path))[0]
+             for path in glob.glob(os.path.join(MODEL_DIR, 'voice_styles', '*.json'))]
+    names = set(names or BUILTIN_VOICES) | set(list_custom_voices())
+    names = sorted(names, key=lambda name: (
+        name[:1], int(name[1:]) if name[1:].isdigit() else 0, name))
+    return names, True
 
-    names = [style['name'] for style in styles if style.get('name')]
-    names.sort(key=lambda name: (name[:1], int(name[1:]) if name[1:].isdigit() else 0))
-    return names or list(BUILTIN_VOICES), True
+
+def ensure_model():
+    # two processes downloading at once would trample the same temporary folder
+    if has_model():
+        return True
+    import msvcrt
+    os.makedirs(os.path.dirname(MODEL_DIR), exist_ok=True)
+    with open(MODEL_DIR + '.lock', 'a+b') as lock:
+        lock.seek(0)
+        while True:
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                break
+            except OSError:
+                continue
+        try:
+            if not has_model():
+                from supertonic.loader import download_model
+                download_model(MODEL_DIR, MODEL_NAME)
+        except Exception:
+            pass
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+    return has_model()
 
 
-def is_server_up():
-    return list_voices()[1]
+def get_pythonw():
+    path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+    return path if os.path.exists(path) else sys.executable
 
 
 def preview(voice, text=SAMPLE_TEXT):
-    # speak.ps1 targets Windows PowerShell 5.1 and is unsigned on a UNC path
-    command = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
-               '-File', SPEAK_SCRIPT, '-Text', text, '-Interrupt']
+    command = [get_pythonw(), SPEAK_SCRIPT, '--text', text, '--interrupt']
     if voice:
-        command += ['-Voice', voice]
+        command += ['--voice', voice]
     try:
         return subprocess.Popen(command, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,

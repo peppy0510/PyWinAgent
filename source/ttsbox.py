@@ -65,7 +65,8 @@ class TtsBox(ScrollArea):
         self.on_folds = on_fold
 
         board = self.content
-        voices, self.online = list(ttsconfig.BUILTIN_VOICES), False
+        voices = list(ttsconfig.BUILTIN_VOICES)
+        self.online = True if ttsconfig.has_model() else None
         self.grid = ChipGrid(board, theme, voices, self.on_change, self.fit)
         self.grid.SetValue(self.values.get('voice', voices[0]))
         self.preview = ActionCard(board, theme, 'Preview',
@@ -89,11 +90,15 @@ class TtsBox(ScrollArea):
 
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_idle_save)
-        # a closed localhost port takes Windows 2 s to refuse; ask off the UI thread
+        # the first run downloads the voice model, so look for it off the UI thread
         threading.Thread(target=self.load_voices, daemon=True).start()
 
     def load_voices(self):
         voices, online = ttsconfig.list_voices()
+        if not online:
+            call_painted(self, self.set_voices, voices, None)
+            ttsconfig.ensure_model()
+            voices, online = ttsconfig.list_voices()
         call_painted(self, self.set_voices, voices, online)
 
     def set_voices(self, voices, online):
@@ -105,9 +110,11 @@ class TtsBox(ScrollArea):
         self.relayout_panels()
 
     def get_status(self):
+        if self.online is None:
+            return 'Downloading the Supertonic model'
         if self.online:
-            return 'Supertonic running · clone voices included'
-        return 'Supertonic not answering · built-in voices only'
+            return 'Supertonic ready · clone voices included'
+        return 'Supertonic model missing · Windows voice is used'
 
     def add_panel(self, key, title, body, subtitle=''):
         return Panel(self.content, self.theme, 'tts.' + key, title, body, self.folds,
