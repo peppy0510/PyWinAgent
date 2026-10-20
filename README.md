@@ -8,7 +8,7 @@
 ## How to install
 
 * Download or clone a repository, install Python packages in the requirements.pip file, then execute source/main.pyw with pythonw.exe. Python 3.x is required.
-* Usage needs ccusage. TTS reads the agent toolkit settings over the WSL share.
+* TTS reads the agent toolkit settings over the WSL share.
 * Execute source/makeshortcut.py to put a shortcut in the Start menu.
 
 ## Supported platforms

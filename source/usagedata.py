@@ -8,28 +8,15 @@ email: peppy0510@hotmail.com
 
 
 import base64
-import glob
 import json
 import os
 import re
-import sqlite3
-import subprocess
 import time
 import urllib.error
 import urllib.request
 
-from calendar import timegm
 from datetime import datetime
 
-
-CCUSAGE = os.environ.get('PYWINAGENT_CCUSAGE', 'ccusage@latest')
-PROJECTS = os.path.join(os.path.expanduser('~'), '.claude', 'projects')
-CODEX_SESSIONS = os.path.join(os.path.expanduser('~'), '.codex', 'sessions')
-ANTIGRAVITY_DBS = tuple(
-    os.path.join(os.path.expanduser('~'), '.gemini', name, 'conversation_summaries.db')
-    for name in ('antigravity', 'antigravity-cli'))
-
-AGENTS = ('claude', 'codex', 'antigravity')
 
 USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
@@ -51,68 +38,6 @@ LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
 
 SESSION_WINDOW = 5 * 3600
 WEEKLY_WINDOW = 7 * 86400
-
-TREND_DAYS = 60
-HEATMAP_DAYS = 7
-
-PRICES = {
-    'claude-opus-5': (5.0, 25.0, 6.25, 0.50),
-    'claude-opus-4-8': (15.0, 75.0, 18.75, 1.50),
-    'claude-fable-5': (10.0, 50.0, 12.5, 1.0),
-    'claude-mythos-5': (10.0, 50.0, 12.5, 1.0),
-    'claude-sonnet-5': (3.0, 15.0, 3.75, 0.30),
-    'claude-sonnet-4-6': (3.0, 15.0, 3.75, 0.30),
-    'claude-haiku-4-5': (1.0, 5.0, 1.25, 0.10),
-}
-DEFAULT_PRICE = (3.0, 15.0, 3.75, 0.30)
-
-TIMESTAMP = re.compile(rb'"timestamp":"(\d{4})-(\d{2})-(\d{2})T(\d{2})')
-REQUEST = re.compile(rb'"requestId":"([^"]+)"')
-CODEX_REQUEST = re.compile(rb'"type":"token_usage_record".*?"response_id":"([^"]+)"')
-
-
-def get_npx():
-    path = os.path.join(os.path.expanduser('~'), '.nvm4w', 'nodejs', 'npx.cmd')
-    return path if os.path.exists(path) else 'npx.cmd'
-
-
-def run_ccusage(*args):
-    command = [get_npx(), CCUSAGE] + list(args) + ['--json']
-    try:
-        done = subprocess.run(command, capture_output=True, timeout=180,
-                              creationflags=subprocess.CREATE_NO_WINDOW)
-    except Exception:
-        return None
-    text = done.stdout.decode('utf-8', 'replace')
-    start = text.find('{')
-    if start < 0:
-        return None
-    try:
-        return json.loads(text[start:])
-    except ValueError:
-        return None
-
-
-def get_price(model):
-    for name, price in PRICES.items():
-        if model and name in model:
-            return price
-    return DEFAULT_PRICE
-
-
-def get_cache_stats(row):
-    read = row.get('cacheReadTokens', 0)
-    written = row.get('cacheCreationTokens', 0)
-    fresh = row.get('inputTokens', 0)
-    total = read + written + fresh
-    ratio = (read / float(total)) if total else 0.0
-
-    saved = 0.0
-    breakdowns = row.get('modelBreakdowns') or [row]
-    for item in breakdowns:
-        price = get_price(item.get('modelName'))
-        saved += item.get('cacheReadTokens', 0) * (price[0] - price[3]) / 1e6
-    return ratio, saved
 
 
 last_error = None
@@ -297,179 +222,7 @@ def format_remaining(seconds):
     return 'resets in %dm' % max(1, rest // 60)
 
 
-def get_day_key(offset_days=0):
-    return time.strftime('%Y-%m-%d', time.localtime(time.time() - offset_days * 86400))
-
-
-def get_local_key(stamp, local):
-    key = local.get(stamp)
-    if key is None:
-        moment = time.localtime(timegm((
-            int(stamp[0]), int(stamp[1]), int(stamp[2]),
-            int(stamp[3]), 0, 0, 0, 0, 0)))
-        key = (time.strftime('%Y-%m-%d', moment), moment.tm_hour)
-        local[stamp] = key
-    return key
-
-
-def scan_records(root=PROJECTS, request=REQUEST, days=HEATMAP_DAYS, on_line=None):
-    since = time.time() - days * 86400
-    midnight = time.mktime(time.strptime(get_day_key(), '%Y-%m-%d'))
-    today = get_day_key()
-
-    files = glob.glob(os.path.join(root, '**', '*.jsonl'), recursive=True)
-    recent = [path for path in files if os.path.getmtime(path) >= since]
-    sessions = sum(1 for path in recent if os.path.getmtime(path) >= midnight)
-
-    hours = {}
-    calls = set()
-    local = {}
-
-    for path in recent:
-        try:
-            handle = open(path, 'rb')
-        except OSError:
-            continue
-        with handle:
-            for line in handle:
-                found = TIMESTAMP.search(line)
-                if not found:
-                    continue
-                key = get_local_key(found.groups(), local)
-                hours[key] = hours.get(key, 0) + 1
-                if key[0] == today:
-                    called = request.search(line)
-                    if called:
-                        calls.add(called.group(1))
-                if on_line is not None:
-                    on_line(line)
-
-    return {'hours': hours, 'calls': len(calls), 'sessions': sessions,
-            'days': [get_day_key(index) for index in range(days - 1, -1, -1)]}
-
-
 def get_window_name(minutes):
     if minutes and minutes % 1440 == 0:
         return 'Weekly' if minutes == 10080 else '%d-day' % (minutes // 1440)
     return '%d-hour' % round((minutes or 0) / 60.0)
-
-
-def scan_codex():
-    latest = {'stamp': b'', 'line': None}
-
-    def on_line(line):
-        if b'"rate_limits"' not in line:
-            return
-        stamp = TIMESTAMP.search(line).group(0)
-        if stamp >= latest['stamp']:
-            latest['stamp'] = stamp
-            latest['line'] = line
-
-    scanned = scan_records(CODEX_SESSIONS, CODEX_REQUEST, on_line=on_line)
-
-    limits = []
-    try:
-        rates = json.loads(latest['line'])['payload']['rate_limits'] if latest['line'] else {}
-    except (ValueError, KeyError, TypeError):
-        rates = {}
-    for window in (rates.get('primary'), rates.get('secondary')):
-        if not window or not window.get('resets_at'):
-            continue
-        remains = window['resets_at'] - time.time()
-        if remains <= 0:
-            continue
-        limits.append({'name': 'Codex · ' + get_window_name(window.get('window_minutes')),
-                       'percent': int(round(window.get('used_percent', 0))),
-                       'severity': 'normal', 'remains': remains,
-                       'window': (window.get('window_minutes') or 0) * 60})
-    scanned['limits'] = limits
-    return scanned
-
-
-def scan_antigravity(days=HEATMAP_DAYS):
-    today = get_day_key()
-    since = get_day_key(days - 1)
-    hours = {}
-    local = {}
-    sessions = 0
-    for path in ANTIGRAVITY_DBS:
-        if not os.path.exists(path):
-            continue
-        try:
-            connection = sqlite3.connect('file:%s?mode=ro' % path, uri=True, timeout=2)
-            try:
-                rows = connection.execute(
-                    'SELECT last_modified_time FROM conversation_summaries').fetchall()
-            finally:
-                connection.close()
-        except sqlite3.Error:
-            continue
-        for (stamp,) in rows:
-            found = re.match(r'(\d{4})-(\d{2})-(\d{2})[ T](\d{2})', str(stamp))
-            if not found:
-                continue
-            key = get_local_key(found.groups(), local)
-            if key[0] < since:
-                continue
-            hours[key] = hours.get(key, 0) + 1
-            if key[0] == today:
-                sessions += 1
-    return {'hours': hours, 'calls': 0, 'sessions': sessions}
-
-
-def collect(agents=('claude',)):
-    rows = []
-    report = None
-    limits = []
-    claude_limits = None
-    scans = []
-
-    if 'claude' in agents:
-        since = time.strftime('%Y%m%d', time.localtime(time.time() - TREND_DAYS * 86400))
-        report = run_ccusage('daily', '--since', since)
-        rows = (report or {}).get('daily', [])
-        claude_limits = get_limits()
-        limits.extend(claude_limits or [])
-        scans.append(scan_records())
-    if 'codex' in agents:
-        codex = scan_codex()
-        limits.extend(codex['limits'])
-        scans.append(codex)
-    if 'antigravity' in agents:
-        scans.append(scan_antigravity())
-
-    today = get_day_key()
-    current = next((row for row in rows if row.get('period') == today), None)
-    ratio, saved = get_cache_stats(current) if current else (0.0, 0.0)
-
-    hours = {}
-    for scanned in scans:
-        for key, value in scanned['hours'].items():
-            hours[key] = hours.get(key, 0) + value
-
-    if 'claude' in agents and claude_limits is None and not limits:
-        limits = None
-
-    return {
-        'ok': report is not None,
-        'claude': 'claude' in agents,
-        'limits': limits,
-        'cost': (current or {}).get('totalCost', 0.0),
-        'ratio': ratio,
-        'saved': saved,
-        'trend': [(row.get('period'), row.get('totalCost', 0.0)) for row in rows],
-        'calls': sum(scanned['calls'] for scanned in scans),
-        'sessions': sum(scanned['sessions'] for scanned in scans),
-        'hours': hours,
-        'days': [get_day_key(index) for index in range(HEATMAP_DAYS - 1, -1, -1)],
-    }
-
-
-def format_count(value):
-    if value >= 1000:
-        return '%.1fK' % (value / 1000.0)
-    return str(value)
-
-
-def format_money(value, digits=0):
-    return '$%s' % format(round(value, digits), ',.%df' % digits)
