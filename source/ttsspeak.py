@@ -33,13 +33,6 @@ import ttsconfig  # noqa: E402
 import ttsengine  # noqa: E402
 
 
-ENGINE_DEFAULTS = {
-    'lang': 'ko',
-    'chunk_min_chars': 40,
-    'lang_pause': False,
-    'join_gap_ms': 20,
-}
-
 TEMP_DIR = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'PyWinAgent', 'tts')
 PID_PATH = os.path.join(TEMP_DIR, 'player.pid')
 MUTEX_NAME = 'Local\\PyWinAgentTtsPlayer'
@@ -69,8 +62,7 @@ def debug(message):
 
 
 def load_config(voice=None):
-    config = dict(ENGINE_DEFAULTS)
-    config.update(ttsconfig.DEFAULTS)
+    config = dict(ttsconfig.DEFAULTS)
     config.update(ttsconfig.read_raw())
     if voice:
         config['voice'] = voice
@@ -134,6 +126,9 @@ def split_units(text, min_chars, default_lang):
         return []
     has_korean = bool(re.search('[가-힣]', text))
     has_latin = bool(LATIN.search(text))
+    if default_lang != 'ko':
+        return [{'runs': [{'text': chunk, 'lang': default_lang}]}
+                for chunk in split_chunks(text, min_chars)]
     if not (has_korean and has_latin):
         lang = 'en' if has_latin else default_lang
         return [{'runs': [{'text': chunk, 'lang': lang}]}
@@ -321,7 +316,8 @@ def play(items, engine, config, player):
 
 def speak(text, voice=None, interrupt=False):
     config = load_config(voice)
-    text = normalize(text)
+    if config['lang'] == 'ko':
+        text = normalize(text)
     if config['lang_pause']:
         text = add_lang_pauses(text)
     units = split_units(text, int(config['chunk_min_chars']), config['lang'])
@@ -332,7 +328,7 @@ def speak(text, voice=None, interrupt=False):
     engine = None
     if ttsconfig.ensure_model():
         try:
-            engine = ttsengine.Engine()
+            engine = ttsengine.Engine(config['threads'])
         except Exception:
             engine = None
     debug('engine %s, %d units' % ('loaded' if engine else 'missing', len(units)))

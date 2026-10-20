@@ -2,6 +2,9 @@
 
 * Usage dashboard for Claude Code: cost, cache efficiency, plan limits, tokens, tool usage and lines committed.
 * Local text-to-speech with the Supertonic model on the CPU, with voice preview and settings.
+* Reads each finished Claude Code reply aloud through a hook installed from the TTS page.
+* Read-aloud hotkey (Ctrl+Alt+Shift+9 by default, changeable) reads the selected text in any app.
+* Tray icon, with an option to close to the tray.
 * Floating usage widget.
 * Auto, dark and light themes.
 

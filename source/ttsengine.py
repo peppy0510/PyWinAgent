@@ -8,7 +8,6 @@ email: peppy0510@hotmail.com
 
 
 import io
-import os
 import wave
 
 import numpy as np
@@ -16,20 +15,17 @@ import numpy as np
 import ttsconfig
 
 
-# ONNX Runtime's default of one thread per logical core ran three times slower here
-# (i7-13700, 24 threads: 2.0 s against 0.6 s for a short sentence); 2 to 4 is fastest
-THREADS = int(os.environ.get('PYWINAGENT_TTS_THREADS', '4'))
-
 SILENCE_LEVEL = 300 / 32768.0
 EDGE_FADE = 0.008
 
 
 class Engine:
 
-    def __init__(self):
+    def __init__(self, threads=None):
         from supertonic import TTS
         self.tts = TTS(model=ttsconfig.MODEL_NAME, model_dir=ttsconfig.MODEL_DIR,
-                       auto_download=False, intra_op_num_threads=THREADS)
+                       auto_download=False,
+                       intra_op_num_threads=int(threads) if threads else None)
         self.rate = self.tts.sample_rate
         self.styles = {}
 

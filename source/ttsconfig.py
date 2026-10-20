@@ -36,6 +36,8 @@ BUILTIN_VOICES = ('F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5')
 
 DEFAULTS = {
     'notify': True,
+    'readaloud': False,
+    'hotkey': 'Ctrl+Alt+Shift+9',
     'voice': 'F1',
     'speed': 1.0,
     'steps': 8,
@@ -52,9 +54,21 @@ DEFAULTS = {
     'reverb_wet': 0.1,
     'reverb_room': 0.32,
     'reverb_width': 0.6,
+    'lang': 'ko',
+    'lang_pause': False,
+    'chunk_min_chars': 40,
+    'join_gap_ms': 20,
+    'threads': 4,
 }
 
+LANGUAGES = (('en', 'English'), ('ko', 'Korean'), ('ja', 'Japanese'))
+
 RANGES = {
+    'chunk_min_chars': (10, 300, 10, 0),
+    'join_gap_ms': (0, 200, 10, 0),
+    # ONNX Runtime's default of one thread per logical core ran three times slower
+    # (i7-13700, 24 threads: 2.0 s against 0.6 s for a short sentence); 2 to 4 is fastest
+    'threads': (1, 16, 1, 0),
     'speed': (0.5, 2.0, 0.05, 2),
     'steps': (4, 32, 1, 0),
     'max_chars': (100, 20000, 100, 0),

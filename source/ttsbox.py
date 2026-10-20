@@ -10,10 +10,13 @@ email: peppy0510@hotmail.com
 import threading
 import wx
 
+import readaloud
 import ttsconfig
+import ttssetup
 
 from controls import ActionCard
 from controls import ChipGrid
+from controls import ChoiceCard
 from controls import Panel
 from controls import ScrollArea
 from controls import SettingCard
@@ -22,7 +25,13 @@ from utilities import call_painted
 
 SAVE_DELAY = 500
 
+HOTKEY_HINT = 'Click and press new keys to change'
+CAPTURE_CAPTION = 'Press keys'
+
 SLIDERS = {
+    'chunk_min_chars': ('Sentence group', 'Short sentences are joined up to this length'),
+    'join_gap_ms': ('Language join', 'Silence kept where Korean and English meet'),
+    'threads': ('CPU threads', 'Threads per reading · 2 to 4 is fastest on this PC'),
     'speed': ('Speed', 'How fast the voice reads'),
     'steps': ('Quality steps', 'More steps sound better and take longer'),
     'max_chars': ('Max characters', 'Longer messages are cut at this length'),
@@ -40,12 +49,16 @@ SLIDERS = {
 
 SWITCHES = {
     'notify': ('Speak notifications', 'Read each finished reply aloud'),
+    'readaloud': ('Read-aloud hotkey', 'Reads the selected text in any app'),
     'trim_silence': ('Trim silence', 'Cut the quiet edges off each chunk'),
     'reverb': ('Reverb', 'Add a small room around the voice'),
+    'lang_pause': ('Pause at language switch', 'Add a comma where Korean and English meet'),
 }
 
 GROUPS = (
     ('Voice', ('speed', 'steps')),
+    ('Language', ('lang', 'lang_pause', 'chunk_min_chars', 'join_gap_ms')),
+    ('Performance', ('threads',)),
     ('Reading', ('max_chars', 'silence_duration')),
     ('Trimming', ('trim_silence', 'trim_lead_ms', 'trim_trail_ms',
                   'end_trail_ms', 'end_fade_ms')),
@@ -73,9 +86,24 @@ class TtsBox(ScrollArea):
                                   'Save and read a sample line aloud',
                                   'Play', self.on_preview)
 
+        self.hook = ActionCard(board, theme, 'Claude Code hook', '', 'Install', self.on_hook)
+        self.hook.set_captions('Install', 'Remove')
+        self.update_hook()
+        self.hotkey_text = self.values.get('hotkey') or ttsconfig.DEFAULTS['hotkey']
+        self.hotkey_card = ActionCard(board, theme, 'Hotkey', HOTKEY_HINT,
+                                      self.hotkey_text, self.on_capture)
+        self.hotkey_card.set_captions(CAPTURE_CAPTION)
+
         for key, (label, description) in SWITCHES.items():
             self.cards[key] = SettingCard(board, theme, label, description,
                                           self.on_change)
+        languages = list(ttsconfig.LANGUAGES)
+        current = self.values.get('lang', ttsconfig.DEFAULTS['lang'])
+        if current not in [code for code, _ in languages]:
+            languages.append((current, current.upper()))
+        self.cards['lang'] = ChoiceCard(board, theme, 'Language',
+                                        'Korean text still reads English words in English',
+                                        languages, self.on_change)
         for key, (label, description) in SLIDERS.items():
             value = self.values.get(key, ttsconfig.DEFAULTS[key])
             self.cards[key] = SliderCard(board, theme, label, description,
@@ -87,6 +115,10 @@ class TtsBox(ScrollArea):
         self.build()
         self.bind_children()
         self.apply_theme(theme)
+
+        self.hotkey = readaloud.Hotkey(self.GetTopLevelParent(), self.hotkey_text)
+        self.capturing = False
+        self.apply_hotkey()
 
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_idle_save)
@@ -121,7 +153,9 @@ class TtsBox(ScrollArea):
                      self.on_fold, subtitle=subtitle)
 
     def build(self):
-        panels = [self.add_panel('notifications', 'Notifications', (self.cards['notify'],))]
+        panels = [self.add_panel('notifications', 'Notifications',
+                                 (self.cards['notify'], self.hook, self.cards['readaloud'],
+                                  self.hotkey_card))]
         for title, keys in GROUPS:
             body = [self.cards[key] for key in keys]
             subtitle = ''
@@ -146,12 +180,76 @@ class TtsBox(ScrollArea):
         self.Refresh()
 
     def collect(self):
-        values = {'voice': self.grid.GetValue()}
+        values = {'voice': self.grid.GetValue(), 'hotkey': self.hotkey_text}
         for key, card in self.cards.items():
             values[key] = card.GetValue()
         return values
 
+    def update_hook(self):
+        state = ttssetup.get_hook_state()
+        self.hook.set_caption('Remove' if state == 'installed' else 'Install')
+        self.hook.set_description({
+            'installed': 'Claude Code calls this app when a reply ends',
+            'toolkit': 'The agent toolkit reads replies now · install to take over',
+            'missing': 'Not installed in Claude Code',
+        }[state])
+
+    def on_hook(self):
+        try:
+            if ttssetup.get_hook_state() == 'installed':
+                ttssetup.remove_hooks()
+            else:
+                ttssetup.install_hooks()
+        except Exception as error:
+            self.hook.set_description('Could not change the hook: %s' % error)
+            return
+        self.update_hook()
+
+    def apply_hotkey(self, toggled=False):
+        wanted = self.cards['readaloud'].GetValue()
+        if wanted and not self.hotkey.active:
+            ttssetup.take_listener()
+            if not self.hotkey.set_active(True):
+                self.hotkey_card.set_description('Another app holds ' + self.hotkey_text)
+        elif not wanted and self.hotkey.active:
+            self.hotkey.set_active(False)
+            if toggled:
+                ttssetup.restore_listener()
+
+    def on_capture(self):
+        # the live hotkey would fire while the new keys are pressed
+        if self.capturing:
+            return
+        self.capturing = True
+        self.paused = self.hotkey.active
+        self.hotkey.set_active(False)
+        self.hotkey_card.set_caption(CAPTURE_CAPTION)
+        self.hotkey_card.set_description('Press the new keys · Esc keeps the old ones')
+        threading.Thread(target=lambda: call_painted(self, self.set_capture, readaloud.capture()),
+                         daemon=True).start()
+
+    def set_capture(self, text):
+        if not self:
+            return
+        self.capturing = False
+        description = HOTKEY_HINT
+        old = self.hotkey_text
+        if text and text != old and self.hotkey.set_text(text):
+            self.hotkey_text = text
+        if self.paused and not self.hotkey.set_active(True):
+            description = '%s is taken by another app' % self.hotkey_text
+            self.hotkey.set_text(old)
+            self.hotkey_text = old
+            self.hotkey.set_active(True)
+        elif self.hotkey_text != old:
+            self.on_change()
+        self.hotkey_card.set_captions(self.hotkey_text)
+        self.hotkey_card.set_caption(self.hotkey_text)
+        self.hotkey_card.set_description(description)
+
     def on_change(self):
+        if self.cards['readaloud'].GetValue() != self.hotkey.active:
+            self.apply_hotkey(toggled=True)
         self.dirty = True
         self.timer.Start(SAVE_DELAY, wx.TIMER_ONE_SHOT)
 
