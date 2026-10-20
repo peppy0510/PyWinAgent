@@ -62,3 +62,18 @@ def has_running_instance():
             return True
 
     return False
+
+
+def show_running_window(title):
+    # the running copy may sit hidden in the tray; bring it back instead of doing nothing
+    import win32con
+    import win32gui
+    hwnd = win32gui.FindWindow('wxWindowNR', title)
+    if not hwnd:
+        return
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE if win32gui.IsIconic(hwnd)
+                        else win32con.SW_SHOW)
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass

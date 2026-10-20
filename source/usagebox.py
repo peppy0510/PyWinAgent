@@ -965,8 +965,8 @@ class UsageBox(ScrollArea):
         data = self.data or {}
         currency = data.get('currency') or 'USD'
         rate = 1 if currency == 'USD' else (data.get('rate') or 1)
-        symbol = {'USD': '$', 'KRW': '₩'}.get(currency, '$')
-        if currency == 'KRW':
+        symbol = {'USD': '$', 'KRW': '₩', 'JPY': '¥'}.get(currency, '$')
+        if currency in ('KRW', 'JPY'):
             digits = 0
         return symbol + format((value or 0) * rate, ',.%df' % digits)
 

@@ -24,7 +24,7 @@ AGENTS = (('claude', 'Claude', 'Count Claude Code usage'),
 SECTIONS = (('planUsage', 'Plan Usage'), ('codeOutput', 'Code Output'), ('trend', 'Trend'),
             ('sessions', 'Sessions'), ('activity', 'Activity'), ('modelUsage', 'Model Usage'))
 
-CURRENCIES = (('USD', 'USD'), ('KRW', 'KRW'))
+CURRENCIES = (('USD', 'USD'), ('KRW', 'KRW'), ('JPY', 'JPY'))
 
 THEMES = (('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark'))
 
@@ -50,6 +50,9 @@ class SettingsBox(ScrollArea):
             return SettingCard(board, theme, label, description, on_change)
 
         self.ontop = toggle('Always on top', 'Keep the window above others')
+        self.tray = toggle('Tray icon', 'Show an icon in the notification area')
+        self.close_to_tray = toggle('Close to tray',
+                                    'Closing hides the window so the hotkey keeps working')
         self.theme_choice = ChoiceCard(board, theme, 'Theme', 'Auto follows Windows',
                                        THEMES, on_change)
 
@@ -62,6 +65,8 @@ class SettingsBox(ScrollArea):
                                    CURRENCIES, on_change)
         self.krw = SliderCard(board, theme, 'KRW per USD', 'Exchange rate for KRW',
                               (900, 2000, 10, 0), on_change, default=1380)
+        self.jpy = SliderCard(board, theme, 'JPY per USD', 'Exchange rate for JPY',
+                              (80, 250, 1, 0), on_change, default=150)
 
         self.layout = {key: LayoutCard(board, theme, label, 'Drag to reorder',
                                        on_change, self.on_drag)
@@ -91,6 +96,8 @@ class SettingsBox(ScrollArea):
 
     def load(self, settings):
         self.ontop.SetValue(settings.get('on_top', False))
+        self.tray.SetValue(settings.get('tray_icon', True))
+        self.close_to_tray.SetValue(settings.get('close_to_tray', False))
         self.theme_choice.SetValue(settings.get('theme', 'dark'))
         self.wide.SetValue(settings.get('wide_layout', True))
         enabled = settings.get('agents', {})
@@ -99,6 +106,7 @@ class SettingsBox(ScrollArea):
         self.widget.SetValue(settings.get('compact_widget', False))
         self.currency.SetValue(settings.get('currency', 'USD'))
         self.krw.SetValue(settings.get('usd_to_krw', 1380))
+        self.jpy.SetValue(settings.get('usd_to_jpy', 150))
         order = [key for key in settings.get('section_order', []) if key in self.layout]
         self.order = order + [key for key in self.layout if key not in order]
         hidden = settings.get('hidden_sections', [])
@@ -121,11 +129,11 @@ class SettingsBox(ScrollArea):
 
     def build(self):
         panels = [self.add_panel(key, title, cards) for key, title, cards in (
-            ('window', 'Window', (self.ontop,)),
+            ('window', 'Window', (self.ontop, self.tray, self.close_to_tray)),
             ('appearance', 'Appearance', (self.theme_choice, self.wide)),
             ('agents', 'Agents', tuple(self.agents.values())),
             ('widget', 'Widget', (self.widget,)),
-            ('currency', 'Currency', (self.currency, self.krw)),
+            ('currency', 'Currency', (self.currency, self.krw, self.jpy)),
         )]
 
         self.layout_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -266,12 +274,15 @@ class SettingsBox(ScrollArea):
     def get_values(self):
         return {
             'on_top': self.ontop.GetValue(),
+            'tray_icon': self.tray.GetValue(),
+            'close_to_tray': self.close_to_tray.GetValue(),
             'theme': self.theme_choice.GetValue(),
             'wide_layout': self.wide.GetValue(),
             'agents': self.get_agents(),
             'compact_widget': self.widget.GetValue(),
             'currency': self.currency.GetValue(),
             'usd_to_krw': self.krw.GetValue(),
+            'usd_to_jpy': self.jpy.GetValue(),
             'section_order': list(self.order),
             'hidden_sections': [key for key, card in self.layout.items() if not card.GetValue()],
         }
@@ -283,6 +294,8 @@ class SettingsBox(ScrollArea):
         currency = self.currency.GetValue()
         if currency == 'KRW':
             return self.krw.GetValue()
+        if currency == 'JPY':
+            return self.jpy.GetValue()
         return 1.0
 
     def apply_theme(self, theme):

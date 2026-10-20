@@ -17,6 +17,7 @@ from companions import is_windows_dark
 from settingsbox import SettingsBox
 from sidemenu import SideMenu
 from titlebar import TitleBar
+from tray import TrayIcon
 from ttsbox import TtsBox
 from usagebox import UsageBox
 from utilities import APP_NAME
@@ -74,6 +75,8 @@ class MainFrame(wx.Frame):
     stored_rect = None
     started = False
     restore_bounds = None
+    tray = None
+    quitting = False
 
     def __init__(self):
         settings = load_settings()
@@ -84,6 +87,7 @@ class MainFrame(wx.Frame):
         self.theme_name = self.resolve_theme(settings.get('theme', 'dark'))
         theme = THEMES[self.theme_name]
         self.widget = None
+        self.tray = None
         self.widget_position = settings.get('compact_widget_position')
         self.last_data = None
 
@@ -240,6 +244,10 @@ class MainFrame(wx.Frame):
             self.widget.Show()
         elif not values['compact_widget'] and self.widget is not None:
             self.close_widget()
+        if values['tray_icon'] and self.tray is None:
+            self.tray = TrayIcon(self)
+        elif not values['tray_icon'] and self.tray is not None:
+            self.remove_tray()
         self.store_settings()
 
     def on_usage(self, data):
@@ -258,6 +266,15 @@ class MainFrame(wx.Frame):
     def hide_widget(self):
         self.settingsbox.widget.SetValue(False)
         self.on_settings()
+
+    def remove_tray(self):
+        self.tray.RemoveIcon()
+        self.tray.Destroy()
+        self.tray = None
+
+    def quit(self):
+        self.quitting = True
+        self.Close(True)
 
     def show_window(self):
         if self.IsIconized():
@@ -304,6 +321,18 @@ class MainFrame(wx.Frame):
                                             len(options['hidden_projects']))
 
     def on_close(self, event):
+        values = self.settingsbox.get_values()
+        if (self.tray is not None and values['close_to_tray'] and not self.quitting
+                and event.CanVeto()):
+            event.Veto()
+            self.ttsbox.flush()
+            if self.IsIconized() is False and self.IsMaximized() is False:
+                self.stored_rect = list(self.GetRect())
+            self.store_settings()
+            # a second launch may have shown the window behind wx's back
+            self.Show(True)
+            self.Hide()
+            return
         self.pacer.running = False
         # the drawer's capture and slide timer crash a closing frame (0xc0000374)
         self.sidemenu.close()
@@ -317,6 +346,9 @@ class MainFrame(wx.Frame):
         if self.widget is not None:
             self.widget.Destroy()
             self.widget = None
+        # a live tray icon keeps the app running after the frame is gone
+        if self.tray is not None:
+            self.remove_tray()
         event.Skip()
 
 
