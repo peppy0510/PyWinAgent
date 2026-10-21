@@ -46,6 +46,8 @@ INDEX_PATH = os.path.join(os.environ.get('APPDATA', HOME), 'PyWinAgent', 'usage-
 
 SCHEMA_VERSION = 1
 
+LIMIT_KEEP = 35 * 86400
+
 PER_MILLION = 1e6
 LONG_CONTEXT_THRESHOLD = 272000
 GPT_56_PRICE_CUT = datetime(2026, 7, 30, tzinfo=timezone.utc).timestamp() * 1000
@@ -227,6 +229,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     key TEXT PRIMARY KEY, provider TEXT, file TEXT, session TEXT, cwd TEXT,
     project TEXT, model TEXT, source TEXT, started INTEGER, last INTEGER,
     context INTEGER, context_max INTEGER);
+CREATE TABLE IF NOT EXISTS limits (
+    provider TEXT, name TEXT, ts INTEGER, percent REAL, resets_at INTEGER,
+    PRIMARY KEY (provider, name, ts));
 '''
 
 UPSERT_ENTRY = '''
@@ -249,6 +254,7 @@ class Indexer:
         self.state = state
         self.entries = []
         self.tools = []
+        self.limits = []
 
     def add_entry(self, key, stamp, model, session, project, fresh, output,
                   written, read, reasoning=0, written_long=0):
@@ -261,14 +267,24 @@ class Indexer:
     def add_tool(self, key, stamp, session, category, tokens):
         self.tools.append((key, self.path, self.provider, int(stamp), session, category, tokens))
 
+    def add_limits(self, stamp, rates):
+        for name in ('primary', 'secondary'):
+            window = rates.get(name) or {}
+            if window.get('resets_at'):
+                self.limits.append((self.provider, name, int(stamp),
+                                    window.get('used_percent') or 0, int(window['resets_at'])))
+
     def flush(self):
         if self.entries:
             self.db.executemany(UPSERT_ENTRY, self.entries)
         if self.tools:
             self.db.executemany('INSERT OR IGNORE INTO tools VALUES (?, ?, ?, ?, ?, ?, ?)',
                                 self.tools)
+        if self.limits:
+            self.db.executemany('INSERT OR IGNORE INTO limits VALUES (?, ?, ?, ?, ?)', self.limits)
         self.entries = []
         self.tools = []
+        self.limits = []
 
 
 def read_claude_line(indexer, line):
@@ -379,6 +395,7 @@ def read_codex_line(indexer, line):
         if payload.get('rate_limits'):
             state['rate_limits'] = payload['rate_limits']
             state['rate_stamp'] = stamp
+            indexer.add_limits(stamp, payload['rate_limits'])
         # token_count repeats the token_usage_record newer logs write per response
         if state.get('structured'):
             return
@@ -421,6 +438,11 @@ class UsageIndex:
             for table in ('files', 'entries', 'tools', 'sessions'):
                 db.execute('DELETE FROM %s' % table)
             db.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(SCHEMA_VERSION),))
+            db.commit()
+        if db.execute("SELECT 1 FROM meta WHERE key = 'limit_history'").fetchone() is None:
+            # every Codex reply logs the limits, so reading them once more fills the history
+            db.execute("DELETE FROM files WHERE provider = 'codex'")
+            db.execute("INSERT INTO meta VALUES ('limit_history', '1')")
             db.commit()
         return db
 
@@ -534,6 +556,18 @@ class UsageIndex:
         db = sqlite3.connect(self.path, timeout=30)
         try:
             return db.execute(sql, args).fetchall()
+        finally:
+            db.close()
+
+    def add_limits(self, provider, stamp, rows):
+        db = sqlite3.connect(self.path, timeout=30)
+        try:
+            db.executescript(SCHEMA)
+            db.executemany('INSERT OR IGNORE INTO limits VALUES (?, ?, ?, ?, ?)',
+                           [(provider, name, int(stamp * 1000), percent, int(resets_at))
+                            for name, percent, resets_at in rows])
+            db.execute('DELETE FROM limits WHERE ts < ?', (int((stamp - LIMIT_KEEP) * 1000),))
+            db.commit()
         finally:
             db.close()
 

@@ -1158,9 +1158,16 @@ class UsageBox(ScrollArea):
             p.fill(mix(self.palette['grid'], self.palette['dim'], 0.45), x, y,
                    width * limit['elapsed'] / 100.0, BAR_HEIGHT, BAR_RADIUS)
         used = width * min(100, max(0, limit['percent'])) / 100.0
+        share = limit.get('share')
+        split = share and share['here'] + share['elsewhere'] >= 0.5
         if used > 0:
-            p.fill(tint, x, y, used, BAR_HEIGHT, BAR_RADIUS)
+            p.fill(mix(p.colour(tint), p.colour('grid'), 0.55) if split else tint,
+                   x, y, used, BAR_HEIGHT, BAR_RADIUS)
+        if split and share['here'] > 0:
+            p.fill(tint, x, y, min(used, width * share['here'] / 100.0), BAR_HEIGHT, BAR_RADIUS)
         y += BAR_HEIGHT
+        if share:
+            y = self.draw_share(p, share, x, y, width)
         if limit.get('reached') and limit.get('until'):
             y += 8
             base = p.baseline(HUGE, y, LINE[HUGE], True)
@@ -1170,6 +1177,25 @@ class UsageBox(ScrollArea):
             y += LINE[HUGE]
         p.fade = 0.0
         return y
+
+    def draw_share(self, p, share, x, y, width):
+        y += 5
+        if share['here'] + share['elsewhere'] < 0.5:
+            p.text('This PC share needs a few more hours of readings', x, y, NOTE, 'dim',
+                   limit=width)
+            return y + LINE[NOTE]
+        parts = [('This PC ', 'dim', False), ('≈ %d%%' % js_round(share['here']), 'text', True),
+                 ('   Elsewhere ', 'dim', False),
+                 ('≈ %d%%' % js_round(share['elsewhere']), 'text', True)]
+        if share['unclear'] >= 0.5:
+            parts += [('   Unclear ', 'dim', False), ('%d%%' % js_round(share['unclear']), 'text',
+                                                      True)]
+        shown = p.rich(parts, x, y, NOTE, limit=width)
+        p.zone(x, y, min(shown, width), LINE[NOTE], 'share:%d' % y,
+               tip='Estimate. A rise between two readings counts for this PC when this PC '
+                   'used the agent then; long gaps are split by its usual percent per dollar. '
+                   'Elsewhere covers other PCs and the web or mobile apps.')
+        return y + LINE[NOTE]
 
     def draw_resets(self, p, resets, x, y, width):
         if not resets:

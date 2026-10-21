@@ -7,6 +7,8 @@ email: peppy0510@hotmail.com
 '''
 
 
+import bisect
+import sqlite3
 import time
 
 import gitstats
@@ -32,6 +34,17 @@ AGENT_NAMES = {'claude': 'Claude', 'codex': 'Codex', 'antigravity': 'Antigravity
 CLAUDE_LIMITS_TTL = 5 * 60
 claude_limits = {'at': 0, 'value': None}
 
+SHARE_DAYS = 14
+# a limit reading can lag the call that moved it by one poll
+SHARE_GRACE = 10 * 60
+# a longer gap between readings may hide use here and elsewhere at once
+SHARE_GAP = 20 * 60
+# percent points the rate must stand on before it splits long gaps
+SHARE_MIN_POINTS = 3
+# expected points carried to later readings, for rounding and lag
+SHARE_SLACK = 1.5
+SAME_RESET = 120
+
 
 def get_claude_limits(index, fresh):
     now = time.time()
@@ -40,6 +53,9 @@ def get_claude_limits(index, fresh):
         claude_limits['error'] = usagedata.last_error
         claude_limits['at'] = now
         if claude_limits['value'] is not None:
+            index.add_limits('claude', now, [
+                (limit['name'], limit['percent'], now + limit['remains'])
+                for limit in claude_limits['value'] if limit['remains'] is not None])
             index.set_meta('claude_limits', {'at': now, 'limits': [
                 dict(limit, resets_at=None if limit['remains'] is None else now + limit['remains'])
                 for limit in claude_limits['value']]})
@@ -159,6 +175,117 @@ def get_totals(index, where, args, since_day=None):
             'ratio': get_cache_ratio(ratio_rows)}
 
 
+class Spend:
+
+    def __init__(self, rows):
+        self.minutes = [minute for minute, _ in rows]
+        self.sums = [0.0]
+        for _, cost in rows:
+            self.sums.append(self.sums[-1] + cost)
+
+    def between(self, start, end):
+        low = bisect.bisect_right(self.minutes, start // 60)
+        high = bisect.bisect_right(self.minutes, end // 60)
+        return self.sums[high] - self.sums[low]
+
+
+def get_intervals(samples, window):
+    intervals = []
+    last = None
+    for stamp, percent, resets_at in samples:
+        if last is None or abs(resets_at - last[2]) > SAME_RESET:
+            begin, before = resets_at - window, 0
+        else:
+            begin, before = last[0], last[1]
+        if stamp > begin:
+            intervals.append((begin, stamp, max(0, percent - before), resets_at))
+        last = (stamp, percent, resets_at)
+    return intervals
+
+
+def split_intervals(intervals, spend, rate):
+    here = elsewhere = unclear = 0.0
+    budget = 0.0
+    for begin, end, rise, _ in intervals:
+        if rate is None:
+            # until a rate is known a rise goes to whoever was busy
+            busy = spend.between(begin - SHARE_GRACE, end)
+            if not busy:
+                elsewhere += rise
+            elif end - begin <= SHARE_GAP:
+                here += rise
+            else:
+                unclear += rise
+            continue
+        # this PC owns what its spend explains, the rest happened elsewhere
+        budget = min(budget, SHARE_SLACK) + rate * spend.between(begin, end)
+        take = min(rise, budget)
+        budget -= take
+        here += take
+        elsewhere += rise - take
+    return here, elsewhere, unclear
+
+
+history_cache = {}
+
+
+def get_history(index, provider):
+    since = int((time.time() - SHARE_DAYS * 86400) * 1000)
+    try:
+        key = (index.query('SELECT COUNT(*), SUM(offset) FROM files')[0],
+               index.query('SELECT COUNT(*), MAX(ts) FROM limits WHERE provider = ?',
+                           (provider,))[0], since // 3600000)
+        cached = history_cache.get(provider)
+        if cached and cached[0] == key:
+            return cached[1]
+        rows = index.query('SELECT name, ts, percent, resets_at FROM limits '
+                           'WHERE provider = ? AND ts >= ? ORDER BY ts', (provider, since))
+    except sqlite3.OperationalError:
+        return None
+    # the spend reaches back a window further so the oldest readings have their start
+    spend = Spend(index.query('SELECT ts / 60000 AS minute, SUM(cost) FROM entries '
+                              'WHERE provider = ? AND ts >= ? GROUP BY minute ORDER BY minute',
+                              (provider, since - 7 * 86400000)))
+    samples = {}
+    for name, stamp, percent, resets_at in rows:
+        samples.setdefault(name, []).append((stamp / 1000.0, percent, resets_at))
+    history = {'spend': spend, 'samples': samples, 'rates': {}}
+    history_cache[provider] = (key, history)
+    return history
+
+
+def get_rate(history, name, window):
+    # percent per dollar spent here, from short gaps that are this PC's alone
+    if name in history['rates']:
+        return history['rates'][name]
+    points = cost = 0.0
+    for interval in get_intervals(history['samples'].get(name, ()), window):
+        begin, end, rise, _ = interval
+        if end - begin <= SHARE_GAP and history['spend'].between(begin - SHARE_GRACE, end):
+            points += rise
+            cost += history['spend'].between(begin, end)
+    rate = points / cost if points >= SHARE_MIN_POINTS and cost > 0 else None
+    history['rates'][name] = rate
+    return rate
+
+
+def get_share(history, name, percent, reset_at, window):
+    if history is None or reset_at is None or not percent:
+        return None
+    samples = [sample for sample in history['samples'].get(name, ())
+               if abs(sample[2] - reset_at) <= SAME_RESET]
+    if not samples:
+        return None
+    here, elsewhere, unclear = split_intervals(get_intervals(samples, window), history['spend'],
+                                               get_rate(history, name, window))
+    total = here + elsewhere + unclear
+    if total <= 0:
+        return None
+    # readings that drop back make the parts overshoot the shown percent
+    scale = min(1.0, percent / total)
+    return {'here': here * scale, 'elsewhere': elsewhere * scale, 'unclear': unclear * scale}
+
+
 def get_limits(index, options, fresh=False):
     limits = []
     failed = False
@@ -168,13 +295,20 @@ def get_limits(index, options, fresh=False):
         if claude is None:
             failed = True
         else:
-            limits.extend(dict(limit, provider='claude') for limit in claude)
+            history = get_history(index, 'claude')
+            for limit in claude:
+                share = None
+                if ' · ' not in limit['name'] and limit['remains'] is not None:
+                    share = get_share(history, limit['name'], limit['percent'],
+                                      time.time() + limit['remains'], limit['window'])
+                limits.append(dict(limit, provider='claude', share=share))
     if 'codex' in options['agents']:
         stored = index.get_meta('codex_limits') or {}
         rates = stored.get('limits') or {}
         defaults = ({'window_minutes': 300}, {'window_minutes': 10080})
-        for window, default in zip((rates.get('primary'), rates.get('secondary')), defaults):
-            window = window or default
+        history = get_history(index, 'codex')
+        for slot, default in zip(('primary', 'secondary'), defaults):
+            window = rates.get(slot) or default
             minutes = window.get('window_minutes') or default['window_minutes']
             remains = (window.get('resets_at') or 0) - time.time()
             name = 'Codex · ' + usagedata.get_window_name(minutes)
@@ -183,9 +317,12 @@ def get_limits(index, options, fresh=False):
                                'remains': None, 'window': minutes * 60, 'provider': 'codex',
                                'idle': 'starts with the next request'})
                 continue
-            limits.append({'name': name, 'percent': int(round(window.get('used_percent', 0))),
+            percent = int(round(window.get('used_percent', 0)))
+            limits.append({'name': name, 'percent': percent,
                            'severity': 'normal', 'remains': remains, 'window': minutes * 60,
-                           'provider': 'codex'})
+                           'provider': 'codex',
+                           'share': get_share(history, slot, percent, window['resets_at'],
+                                              minutes * 60)})
     now = time.time()
     for limit in limits:
         limit['when'] = limit.pop('idle', None) or usagedata.format_remaining(limit['remains'])
