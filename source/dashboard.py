@@ -208,7 +208,6 @@ def split_intervals(intervals, spend, rate):
     budget = 0.0
     for begin, end, rise, _ in intervals:
         if rate is None:
-            # until a rate is known a rise goes to whoever was busy
             busy = spend.between(begin - SHARE_GRACE, end)
             if not busy:
                 elsewhere += rise
@@ -217,7 +216,6 @@ def split_intervals(intervals, spend, rate):
             else:
                 unclear += rise
             continue
-        # this PC owns what its spend explains, the rest happened elsewhere
         budget = min(budget, SHARE_SLACK) + rate * spend.between(begin, end)
         take = min(rise, budget)
         budget -= take
@@ -281,7 +279,6 @@ def get_share(history, name, percent, reset_at, window):
     total = here + elsewhere + unclear
     if total <= 0:
         return None
-    # readings that drop back make the parts overshoot the shown percent
     scale = min(1.0, percent / total)
     return {'here': here * scale, 'elsewhere': elsewhere * scale, 'unclear': unclear * scale}
 
