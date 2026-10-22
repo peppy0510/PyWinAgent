@@ -26,6 +26,8 @@ from controls import ScrollArea
 from controls import draw_button
 from controls import draw_row_face
 from controls import get_button_width
+from hovertip import hide_hover_tip
+from hovertip import show_hover_tip
 from utilities import BAND_INSET
 from utilities import BUTTON_GAP
 from utilities import BUTTON_HEIGHT
@@ -457,6 +459,14 @@ class Painter:
         return 11 + width
 
 
+def split_tip(tip):
+    # fields in a tip are two spaces apart; the first names the cell
+    fields = [field for field in tip.split('  ') if field]
+    if len(fields) < 2:
+        return [(tip, 'text')]
+    return [(fields[0], 'dim')] + [(field, 'text') for field in fields[1:]]
+
+
 class Body(Canvas):
 
     first = True
@@ -530,18 +540,17 @@ class Body(Canvas):
         repaint = lit or self.hover_lit
         self.hover, self.hover_lit = key, lit
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND if zone and zone.action else wx.CURSOR_ARROW))
-        tip = zone.tip if zone else None
-        if tip != self.tip:
-            self.tip = tip
-            if tip:
-                self.SetToolTip(tip)
-            else:
-                self.UnsetToolTip()
+        self.tip = zone.tip if zone else None
+        if not self.tip:
+            hide_hover_tip(self)
         if repaint:
             self.Refresh()
 
     def on_motion(self, event):
         self.set_hover(self.find(event.GetPosition()))
+        if self.tip:
+            show_hover_tip(self, self.theme, split_tip(self.tip),
+                           self.ClientToScreen(event.GetPosition()))
         event.Skip()
 
     def on_down(self, event):
@@ -1165,6 +1174,15 @@ class UsageBox(ScrollArea):
                    x, y, used, BAR_HEIGHT, BAR_RADIUS)
         if split and share['here'] > 0:
             p.fill(tint, x, y, min(used, width * share['here'] / 100.0), BAR_HEIGHT, BAR_RADIUS)
+        fields = [name, '%d%% used' % limit['percent']]
+        if limit.get('elapsed') is not None:
+            fields.append('%d%% of the window elapsed' % limit['elapsed'])
+        if split:
+            fields.append('This device ≈ %d%% · elsewhere ≈ %d%%' % (
+                js_round(share['here']), js_round(share['elsewhere'])))
+        if when.strip(' ·'):
+            fields.append(when.strip(' ·'))
+        p.zone(x, y - 5, width, BAR_HEIGHT + 10, 'limit:%s' % limit['name'], tip='  '.join(fields))
         y += BAR_HEIGHT
         if share:
             y = self.draw_share(p, share, x, y, width)
@@ -1500,6 +1518,7 @@ class UsageBox(ScrollArea):
             left = x + 92 + 8
             p.track(left, y + (LINE[NOTE] - BAR_HEIGHT) // 2,
                     max(0, x + width - value_width - 8 - left), row[1] / float(top) if top else 0)
+            p.zone(x, y, width, LINE[NOTE], 'meter:%d:%d' % (x, y), tip='%s  %s' % (row[0], value))
             y += LINE[NOTE]
         return y
 
@@ -1648,6 +1667,9 @@ class UsageBox(ScrollArea):
             colour = 'close' if pct >= 95 else 'warn' if pct >= 70 else 'accent'
             p.track(x, y + (LINE[NOTE] - BAR_HEIGHT) // 2, max(0, width - text_width - 8),
                     pct / 100.0, colour)
+            p.zone(x, y, width, LINE[NOTE], 'context:%d:%d' % (x, y),
+                   tip='Context  %d%% used  %s' % (js_round(pct), near or
+                                                  count(context_max - item['context']) + ' left'))
             y += LINE[NOTE]
 
         if is_open:
@@ -1789,6 +1811,10 @@ class UsageBox(ScrollArea):
                    NOTE, align='right', limit=90)
             p.track(x + 78, y + (LINE[NOTE] - BAR_HEIGHT) // 2, max(0, area - 78 - 98),
                     week['tokens'] / float(peak), 'accent' if current else 'soft')
+            p.zone(x, y, area, LINE[NOTE], 'week:%d' % index,
+                   tip='%s  %s tok  %s' % ('This week' if current else
+                                           '%d weeks ago' % (len(weeks) - 1 - index),
+                                           count(week['tokens']), self.money(week['cost'])))
             y += LINE[NOTE]
         return self.draw_caption_row(p, '4-week total', count(sum(week['tokens'] for week in weeks))
                                      + ' tok', x, y, area)
@@ -1855,9 +1881,14 @@ class UsageBox(ScrollArea):
                                    limit=right - 8 - x - tag)
             if model.get('provider'):
                 p.provider(model['provider'], x + name_width + 4, base, upper=False)
+            row_top = y
             y += LINE[BODY] + 2
             p.track(x, y, inner, model['cost'] / total)
             y += BAR_HEIGHT
+            p.zone(x, row_top, inner, y - row_top, 'model:%d' % index,
+                   tip='%s  %s  %d%% of cost  %s tok' % (
+                       model['model'], self.money(model['cost']),
+                       js_round(model['cost'] / total * 100), count(model['tokens'])))
         return y + PAD
 
     def set_options(self, **options):
