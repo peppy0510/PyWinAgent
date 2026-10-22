@@ -111,7 +111,7 @@ LOGIN_TEXT = {
     'working': 'Signing in…',
     'refreshed': 'Signed in. Reading plan limits…',
     'login': 'Finish signing in in the terminal window. Limits come back by themselves.',
-    'missing': 'Claude Code was not found on this PC.',
+    'missing': 'Claude Code was not found on this device.',
     'failed': 'Could not open the sign-in window.',
 }
 WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
@@ -1181,10 +1181,10 @@ class UsageBox(ScrollArea):
     def draw_share(self, p, share, x, y, width):
         y += 5
         if share['here'] + share['elsewhere'] < 0.5:
-            p.text('This PC share needs a few more hours of readings', x, y, NOTE, 'dim',
+            p.text('This device\'s share needs a few more hours of readings', x, y, NOTE, 'dim',
                    limit=width)
             return y + LINE[NOTE]
-        parts = [('This PC ', 'dim', False), ('≈ %d%%' % js_round(share['here']), 'text', True),
+        parts = [('This device ', 'dim', False), ('≈ %d%%' % js_round(share['here']), 'text', True),
                  ('   Elsewhere ', 'dim', False),
                  ('≈ %d%%' % js_round(share['elsewhere']), 'text', True)]
         if share['unclear'] >= 0.5:
@@ -1192,9 +1192,9 @@ class UsageBox(ScrollArea):
                                                       True)]
         shown = p.rich(parts, x, y, NOTE, limit=width)
         p.zone(x, y, min(shown, width), LINE[NOTE], 'share:%d' % y,
-               tip='Estimate. A rise between two readings counts for this PC when this PC '
+               tip='Estimate. A rise between two readings counts for this device when it '
                    'used the agent then; long gaps are split by its usual percent per dollar. '
-                   'Elsewhere covers other PCs and the web or mobile apps.')
+                   'Elsewhere covers other devices and the web or mobile apps.')
         return y + LINE[NOTE]
 
     def draw_resets(self, p, resets, x, y, width):

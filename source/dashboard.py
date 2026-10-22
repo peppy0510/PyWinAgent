@@ -253,7 +253,7 @@ def get_history(index, provider):
 
 
 def get_rate(history, name, window):
-    # percent per dollar spent here, from short gaps that are this PC's alone
+    # percent per dollar spent here, from short gaps that are this device's alone
     if name in history['rates']:
         return history['rates'][name]
     points = cost = 0.0
