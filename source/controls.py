@@ -9,6 +9,7 @@ email: peppy0510@hotmail.com
 
 import math
 import time
+import re
 import wx
 
 from utilities import BAND_INSET
@@ -696,6 +697,69 @@ class ChoiceCard(CardBase):
         return self.get_cell(0, width, height).x
 
 
+NUMBER = re.compile(r'[-+]?\d+(?:\.\d+)?')
+
+
+def parse_number(text):
+    found = NUMBER.search((text or '').replace(',', ''))
+    return float(found.group(0)) if found else None
+
+
+class ValueEditor:
+    # a field over a slider's number: Enter or clicking away applies, Esc cancels
+
+    POLL_MS = 40
+
+    def __init__(self, card, rect, text, font, on_done):
+        self.on_done = on_done
+        self.closed = False
+        theme = card.theme
+        self.field = field = wx.TextCtrl(card, style=wx.BORDER_NONE | wx.TE_PROCESS_ENTER |
+                                         wx.TE_RIGHT)
+        field.SetFont(font)
+        field.SetBackgroundColour(wx.Colour(theme['control']))
+        field.SetForegroundColour(wx.Colour(theme['text']))
+        height = field.GetBestSize().height
+        field.SetSize(rect.x + 4, rect.y + (rect.height - height) // 2, rect.width - 8, height)
+        field.SetValue(text)
+        field.Bind(wx.EVT_TEXT_ENTER, lambda event: self.close(True))
+        field.Bind(wx.EVT_KEY_DOWN, self.on_key)
+        field.Bind(wx.EVT_KILL_FOCUS, self.on_blur)
+        # the cards are painted panels that never take focus, so a press on one leaves the
+        # field focused; watch the buttons instead
+        self.timer = wx.Timer(field)
+        field.Bind(wx.EVT_TIMER, self.on_poll, self.timer)
+        self.timer.Start(self.POLL_MS)
+        field.SetFocus()
+        field.SelectAll()
+
+    def on_poll(self, event):
+        state = wx.GetMouseState()
+        if ((state.LeftIsDown() or state.RightIsDown() or state.MiddleIsDown())
+                and not self.field.GetScreenRect().Contains(wx.GetMousePosition())):
+            self.close(True)
+
+    def on_key(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE:
+            self.close(False)
+            return
+        event.Skip()
+
+    def on_blur(self, event):
+        event.Skip()
+        # a window destroyed inside its own focus event takes wx down with it
+        wx.CallAfter(self.close, True)
+
+    def close(self, apply):
+        if self.closed:
+            return
+        self.closed = True
+        self.timer.Stop()
+        text = self.field.GetValue()
+        wx.CallAfter(self.field.Destroy)
+        self.on_done(parse_number(text) if apply else None)
+
+
 class SliderCard(CardBase):
 
     TRACK_WIDTH = 116
@@ -714,6 +778,7 @@ class SliderCard(CardBase):
         self.dragging = False
         self.grab = None
         self.value_width = get_text_width(get_font(self.VALUE_SIZE), '00000')
+        self.editor = None
 
     def format(self, value):
         if self.digits == 0:
@@ -749,6 +814,23 @@ class SliderCard(CardBase):
         self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE if self.hovered or self.dragging
                                  else wx.CURSOR_ARROW))
 
+    def get_value_rect(self, width, height):
+        return wx.Rect(width - self.PADDING - self.value_width - 10,
+                       (height - BUTTON_HEIGHT) // 2, self.value_width + 10, BUTTON_HEIGHT)
+
+    def edit(self):
+        if self.editor is None:
+            rect = self.get_value_rect(*self.GetClientSize())
+            self.editor = ValueEditor(self, rect, self.format(self.value),
+                                      get_font(self.VALUE_SIZE), self.finish_edit)
+            self.Refresh()
+
+    def finish_edit(self, value):
+        self.editor = None
+        if value is not None:
+            self.put(value)
+        self.Refresh()
+
     def put(self, value):
         stepped = self.low + round((value - self.low) / self.step) * self.step
         value = min(self.high, max(self.low, stepped))
@@ -762,6 +844,11 @@ class SliderCard(CardBase):
 
     def on_down(self, event):
         position = event.GetPosition()
+        if self.editor is not None:
+            self.editor.close(True)
+        if self.get_value_rect(*self.GetClientSize()).Contains(position):
+            self.edit()
+            return
         if not self.hits(position):
             event.Skip()
             return
@@ -791,6 +878,10 @@ class SliderCard(CardBase):
             self.put(value + (event.GetPosition().x - x) * per_pixel)
             return
         super().on_track(event)
+        if self.get_value_rect(*self.GetClientSize()).Contains(event.GetPosition()):
+            self.SetCursor(wx.Cursor(wx.CURSOR_IBEAM))
+        else:
+            self.update_cursor()
 
     def on_up(self, event):
         self.release()
@@ -830,9 +921,14 @@ class SliderCard(CardBase):
         middle = height // 2
         knob_x = round(self.get_knob_x(width))
 
-        value_rect = wx.Rect(width - self.PADDING - self.value_width, 0, self.value_width, height)
-        draw_text_in(gc, self.format(self.value), value_rect, get_font(self.VALUE_SIZE),
-                     theme['text'], align='right')
+        if self.editor is not None:
+            rect = self.get_value_rect(width, height)
+            fill_rect(gc, theme['control'], rect.x, rect.y, rect.width, rect.height, PANEL_RADIUS)
+        else:
+            value_rect = wx.Rect(width - self.PADDING - self.value_width, 0, self.value_width,
+                                 height)
+            draw_text_in(gc, self.format(self.value), value_rect, get_font(self.VALUE_SIZE),
+                         theme['text'], align='right')
 
         top = middle - self.TRACK_HEIGHT // 2
         fill_rect(gc, theme['track'], left, top, self.TRACK_WIDTH, self.TRACK_HEIGHT, 1)
