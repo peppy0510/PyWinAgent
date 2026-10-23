@@ -32,6 +32,7 @@ from utilities import draw_text_in
 from utilities import fill_rect
 from utilities import get_font
 from utilities import get_ink
+from utilities import get_ink_span
 from utilities import get_text_top
 from utilities import get_text_width
 from utilities import shade
@@ -698,6 +699,9 @@ class ChoiceCard(CardBase):
 
 
 NUMBER = re.compile(r'[-+]?\d+(?:\.\d+)?')
+NUMBER_KEYS = '0123456789-+.,'
+ENTRY_LIMIT = 12
+SELECTION_ALPHA = 90
 
 
 def parse_number(text):
@@ -705,62 +709,155 @@ def parse_number(text):
     return float(found.group(0)) if found else None
 
 
-class ValueEditor:
-    # a field over a slider's number: Enter or clicking away applies, Esc cancels
+def put_clipboard(text):
+    if wx.TheClipboard.Open():
+        wx.TheClipboard.SetData(wx.TextDataObject(text))
+        wx.TheClipboard.Close()
+
+
+def read_clipboard():
+    data = wx.TextDataObject()
+    if not wx.TheClipboard.Open():
+        return ''
+    try:
+        return data.GetText() if wx.TheClipboard.GetData(data) else ''
+    finally:
+        wx.TheClipboard.Close()
+
+
+class NumberEntry:
+    # types a slider's number in place: the card keeps drawing the number and adds its own
+    # caret and selection, so nothing moves or changes face when editing starts (a native
+    # field draws with GDI, the card with GDI+). Enter, Tab or a press elsewhere applies;
+    # Esc cancels
 
     POLL_MS = 40
+    entry = None
+    entry_geometry = (0, [])
 
-    def __init__(self, card, rect, text, font, on_done):
-        self.on_done = on_done
-        self.closed = False
-        theme = card.theme
-        self.field = field = wx.TextCtrl(card, style=wx.BORDER_NONE | wx.TE_PROCESS_ENTER |
-                                         wx.TE_RIGHT)
-        field.SetFont(font)
-        field.SetBackgroundColour(wx.Colour(theme['control']))
-        field.SetForegroundColour(wx.Colour(theme['text']))
-        height = field.GetBestSize().height
-        field.SetSize(rect.x + 4, rect.y + (rect.height - height) // 2, rect.width - 8, height)
-        field.SetValue(text)
-        field.Bind(wx.EVT_TEXT_ENTER, lambda event: self.close(True))
-        field.Bind(wx.EVT_KEY_DOWN, self.on_key)
-        field.Bind(wx.EVT_KILL_FOCUS, self.on_blur)
-        # the cards are painted panels that never take focus, so a press on one leaves the
-        # field focused; watch the buttons instead
-        self.timer = wx.Timer(field)
-        field.Bind(wx.EVT_TIMER, self.on_poll, self.timer)
-        self.timer.Start(self.POLL_MS)
-        field.SetFocus()
-        field.SelectAll()
+    def bind_entry(self):
+        # without WANTS_CHARS the parents' dialog navigation takes Enter, Tab and the arrows
+        self.SetWindowStyleFlag(self.GetWindowStyleFlag() | wx.WANTS_CHARS)
+        self.entry_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_entry_poll, self.entry_timer)
+        self.Bind(wx.EVT_KEY_DOWN, self.on_entry_key)
+        self.Bind(wx.EVT_CHAR, self.on_entry_char)
+        self.Bind(wx.EVT_KILL_FOCUS, self.on_entry_blur)
 
-    def on_poll(self, event):
+    def start_entry(self, text):
+        self.entry = {'text': text, 'caret': len(text), 'anchor': 0}
+        self.entry_timer.Start(self.POLL_MS)
+        self.SetFocus()
+        self.Refresh()
+
+    def end_entry(self, apply):
+        entry, self.entry = self.entry, None
+        if entry is None:
+            return
+        self.entry_timer.Stop()
+        self.finish_edit(parse_number(entry['text']) if apply else None)
+
+    def on_entry_poll(self, event):
+        # the cards never hold focus for long, so a press elsewhere is watched on the buttons
         state = wx.GetMouseState()
         if ((state.LeftIsDown() or state.RightIsDown() or state.MiddleIsDown())
-                and not self.field.GetScreenRect().Contains(wx.GetMousePosition())):
-            self.close(True)
+                and not self.GetScreenRect().Contains(wx.GetMousePosition())):
+            self.end_entry(True)
 
-    def on_key(self, event):
-        if event.GetKeyCode() == wx.WXK_ESCAPE:
-            self.close(False)
-            return
+    def on_entry_blur(self, event):
+        self.end_entry(True)
         event.Skip()
 
-    def on_blur(self, event):
-        event.Skip()
-        # a window destroyed inside its own focus event takes wx down with it
-        wx.CallAfter(self.close, True)
+    def get_selection(self):
+        return sorted((self.entry['anchor'], self.entry['caret']))
 
-    def close(self, apply):
-        if self.closed:
+    def select_entry(self, anchor, caret):
+        self.entry['anchor'], self.entry['caret'] = anchor, caret
+        self.Refresh()
+
+    def replace_selection(self, text):
+        entry = self.entry
+        low, high = self.get_selection()
+        typed = ''.join(char for char in text if char in NUMBER_KEYS)
+        merged = entry['text'][:low] + typed + entry['text'][high:]
+        if len(merged) <= ENTRY_LIMIT:
+            entry['text'] = merged
+            low += len(typed)
+        self.select_entry(low, low)
+
+    def on_entry_key(self, event):
+        entry = self.entry
+        if entry is None:
+            event.Skip()
             return
-        self.closed = True
-        self.timer.Stop()
-        text = self.field.GetValue()
-        wx.CallAfter(self.field.Destroy)
-        self.on_done(parse_number(text) if apply else None)
+        code, shift, control = event.GetKeyCode(), event.ShiftDown(), event.ControlDown()
+        text, caret = entry['text'], entry['caret']
+        low, high = self.get_selection()
+        collapse = low < high and not shift
+        moves = {wx.WXK_LEFT: low if collapse else max(0, caret - 1),
+                 wx.WXK_RIGHT: high if collapse else min(len(text), caret + 1),
+                 wx.WXK_HOME: 0, wx.WXK_END: len(text)}
+        if code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER, wx.WXK_TAB):
+            self.end_entry(True)
+        elif code == wx.WXK_ESCAPE:
+            self.end_entry(False)
+        elif code in moves and not control:
+            self.select_entry(entry['anchor'] if shift else moves[code], moves[code])
+        elif code == wx.WXK_BACK:
+            if low == high and low:
+                self.select_entry(low - 1, low)
+            self.replace_selection('')
+        elif code == wx.WXK_DELETE:
+            if low == high and high < len(text):
+                self.select_entry(low, low + 1)
+            self.replace_selection('')
+        elif control and code == ord('A'):
+            self.select_entry(0, len(text))
+        elif control and code in (ord('C'), ord('X'), wx.WXK_INSERT):
+            if low < high:
+                put_clipboard(text[low:high])
+                if code == ord('X'):
+                    self.replace_selection('')
+        elif (control and code == ord('V')) or (shift and code == wx.WXK_INSERT):
+            self.replace_selection(read_clipboard())
+        else:
+            event.Skip()
+
+    def on_entry_char(self, event):
+        key = event.GetUnicodeKey()
+        if (self.entry is None or event.ControlDown() or event.AltDown()
+                or not key or chr(key) not in NUMBER_KEYS):
+            event.Skip()
+            return
+        self.replace_selection(chr(key))
+
+    def place_caret(self, x, extend=False):
+        origin, offsets = self.entry_geometry
+        index = len(offsets)
+        for position, edge in enumerate(offsets):
+            if x - origin < ((offsets[position - 1] if position else 0) + edge) / 2.0:
+                index = position
+                break
+        self.select_entry(self.entry['anchor'] if extend else index, index)
+
+    def draw_entry(self, gc, draw_text, origin, offsets, top, bottom):
+        # selection under the text, caret over it
+        self.entry_geometry = (origin, offsets)
+        at = lambda index: origin + (offsets[index - 1] if index else 0)
+        low, high = self.get_selection()
+        if low < high:
+            tone = wx.Colour(self.theme['accent'])
+            gc.SetPen(wx.TRANSPARENT_PEN)
+            gc.SetBrush(wx.Brush(wx.Colour(tone.Red(), tone.Green(), tone.Blue(),
+                                           SELECTION_ALPHA)))
+            gc.DrawRectangle(at(low), top, at(high) - at(low), bottom - top)
+        draw_text()
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(wx.Colour(self.theme['text'])))
+        gc.DrawRectangle(round(at(self.entry['caret'])), top, 1, bottom - top)
 
 
-class SliderCard(CardBase):
+class SliderCard(NumberEntry, CardBase):
 
     TRACK_WIDTH = 116
     TRACK_HEIGHT = 2
@@ -778,7 +875,7 @@ class SliderCard(CardBase):
         self.dragging = False
         self.grab = None
         self.value_width = get_text_width(get_font(self.VALUE_SIZE), '00000')
-        self.editor = None
+        self.bind_entry()
 
     def format(self, value):
         if self.digits == 0:
@@ -819,14 +916,10 @@ class SliderCard(CardBase):
                        (height - BUTTON_HEIGHT) // 2, self.value_width + 10, BUTTON_HEIGHT)
 
     def edit(self):
-        if self.editor is None:
-            rect = self.get_value_rect(*self.GetClientSize())
-            self.editor = ValueEditor(self, rect, self.format(self.value),
-                                      get_font(self.VALUE_SIZE), self.finish_edit)
-            self.Refresh()
+        if self.entry is None:
+            self.start_entry(self.format(self.value))
 
     def finish_edit(self, value):
-        self.editor = None
         if value is not None:
             self.put(value)
         self.Refresh()
@@ -844,9 +937,13 @@ class SliderCard(CardBase):
 
     def on_down(self, event):
         position = event.GetPosition()
-        if self.editor is not None:
-            self.editor.close(True)
-        if self.get_value_rect(*self.GetClientSize()).Contains(position):
+        over = self.get_value_rect(*self.GetClientSize()).Contains(position)
+        if self.entry is not None:
+            if over:
+                self.place_caret(position.x, event.ShiftDown())
+                return
+            self.end_entry(True)
+        if over:
             self.edit()
             return
         if not self.hits(position):
@@ -888,6 +985,10 @@ class SliderCard(CardBase):
         self.set_hovered(self.hits(event.GetPosition()))
 
     def on_dclick(self, event):
+        if self.get_value_rect(*self.GetClientSize()).Contains(event.GetPosition()):
+            if self.entry is not None:
+                self.select_entry(0, len(self.entry['text']))
+            return
         if not self.hits(event.GetPosition()):
             event.Skip()
             return
@@ -921,14 +1022,23 @@ class SliderCard(CardBase):
         middle = height // 2
         knob_x = round(self.get_knob_x(width))
 
-        if self.editor is not None:
-            rect = self.get_value_rect(width, height)
-            fill_rect(gc, theme['control'], rect.x, rect.y, rect.width, rect.height, PANEL_RADIUS)
+        font = get_font(self.VALUE_SIZE)
+        value_rect = wx.Rect(width - self.PADDING - self.value_width, 0, self.value_width, height)
+        if self.entry is None:
+            draw_text_in(gc, self.format(self.value), value_rect, font, theme['text'],
+                         align='right')
         else:
-            value_rect = wx.Rect(width - self.PADDING - self.value_width, 0, self.value_width,
-                                 height)
-            draw_text_in(gc, self.format(self.value), value_rect, get_font(self.VALUE_SIZE),
-                         theme['text'], align='right')
+            text = self.entry['text']
+            # the same right edge draw_text_in gives the ink
+            origin = value_rect.x + value_rect.width - 1 - (get_ink_span(font, text)[1]
+                                                            if text else 0)
+            gc.SetFont(font, wx.Colour(theme['text']))
+            offsets = gc.GetPartialTextExtents(text) if text else []
+            top = get_text_top(font, 0, height)
+            ink_top, ink_bottom = get_ink(font)
+            self.draw_entry(gc, lambda: text and draw_text_in(gc, text, value_rect, font,
+                                                              theme['text'], align='right'),
+                            origin, offsets, top + ink_top - 2, top + ink_bottom + 3)
 
         top = middle - self.TRACK_HEIGHT // 2
         fill_rect(gc, theme['track'], left, top, self.TRACK_WIDTH, self.TRACK_HEIGHT, 1)
