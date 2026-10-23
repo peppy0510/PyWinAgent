@@ -1169,11 +1169,20 @@ class UsageBox(ScrollArea):
         used = width * min(100, max(0, limit['percent'])) / 100.0
         share = limit.get('share')
         split = share and share['here'] + share['elsewhere'] >= 0.5
-        if used > 0:
-            p.fill(mix(p.colour(tint), p.colour('grid'), 0.55) if split else tint,
-                   x, y, used, BAR_HEIGHT, BAR_RADIUS)
+        # whole pixels: a gap on a fractional x smears into a grey 2 px band and back
+        start = round(x)
+        end = round(x + used)
+        if end > start:
+            p.fill(tint, start, y, end - start, BAR_HEIGHT, BAR_RADIUS)
         if split and share['here'] > 0:
-            p.fill(tint, x, y, min(used, width * share['here'] / 100.0), BAR_HEIGHT, BAR_RADIUS)
+            # the part goes lighter, as PyWinSystem's WSL share; the gap marks its end so the two
+            # blues need not carry it alone (the darker blue had read as the elapsed grey)
+            here = round(x + min(used, width * share['here'] / 100.0))
+            if here > start:
+                p.fill(mix(self.palette[tint], self.palette['text'], 0.55), start, y,
+                       here - start, BAR_HEIGHT, BAR_RADIUS)
+            if start < here < end - 1:
+                p.fill('face', here, y, 1, BAR_HEIGHT)
         fields = [name, '%d%% used' % limit['percent']]
         if limit.get('elapsed') is not None:
             fields.append('%d%% of the window elapsed' % limit['elapsed'])
