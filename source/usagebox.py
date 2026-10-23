@@ -1667,9 +1667,9 @@ class UsageBox(ScrollArea):
             colour = 'close' if pct >= 95 else 'warn' if pct >= 70 else 'accent'
             p.track(x, y + (LINE[NOTE] - BAR_HEIGHT) // 2, max(0, width - text_width - 8),
                     pct / 100.0, colour)
+            left = near or count(context_max - item['context']) + ' left'
             p.zone(x, y, width, LINE[NOTE], 'context:%d:%d' % (x, y),
-                   tip='Context  %d%% used  %s' % (js_round(pct), near or
-                                                  count(context_max - item['context']) + ' left'))
+                   tip='Context  %d%% used  %s' % (js_round(pct), left))
             y += LINE[NOTE]
 
         if is_open:

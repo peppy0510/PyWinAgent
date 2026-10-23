@@ -726,10 +726,8 @@ def read_clipboard():
 
 
 class NumberEntry:
-    # types a slider's number in place: the card keeps drawing the number and adds its own
-    # caret and selection, so nothing moves or changes face when editing starts (a native
-    # field draws with GDI, the card with GDI+). Enter, Tab or a press elsewhere applies;
-    # Esc cancels
+    # the card draws the number it edits; a native field on top drew it with GDI over the
+    # card's GDI+, so the digits changed face as editing started
 
     POLL_MS = 40
     entry = None
@@ -841,9 +839,10 @@ class NumberEntry:
         self.select_entry(self.entry['anchor'] if extend else index, index)
 
     def draw_entry(self, gc, draw_text, origin, offsets, top, bottom):
-        # selection under the text, caret over it
         self.entry_geometry = (origin, offsets)
-        at = lambda index: origin + (offsets[index - 1] if index else 0)
+
+        def at(index):
+            return origin + (offsets[index - 1] if index else 0)
         low, high = self.get_selection()
         if low < high:
             tone = wx.Colour(self.theme['accent'])
@@ -1036,8 +1035,8 @@ class SliderCard(NumberEntry, CardBase):
             offsets = gc.GetPartialTextExtents(text) if text else []
             top = get_text_top(font, 0, height)
             ink_top, ink_bottom = get_ink(font)
-            self.draw_entry(gc, lambda: text and draw_text_in(gc, text, value_rect, font,
-                                                              theme['text'], align='right'),
+            self.draw_entry(gc, lambda: draw_text_in(gc, text, value_rect, font, theme['text'],
+                                                     align='right'),
                             origin, offsets, top + ink_top - 2, top + ink_bottom + 3)
 
         top = middle - self.TRACK_HEIGHT // 2
