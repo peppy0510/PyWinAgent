@@ -55,8 +55,8 @@ def debug(message):
     try:
         os.makedirs(TEMP_DIR, exist_ok=True)
         with open(os.path.join(TEMP_DIR, 'speak-debug.log'), 'a', encoding='utf-8') as file:
-            file.write('%s pid=%d +%.2fs %s\n' % (time.strftime('%H:%M:%S'), os.getpid(),
-                                                  time.monotonic() - STARTED, message))
+            file.write(f'{time.strftime("%H:%M:%S")} pid={os.getpid()} '
+                       f'+{time.monotonic() - STARTED:.2f}s {message}\n')
     except OSError:
         pass
 
@@ -214,7 +214,7 @@ class Player:
         def action():
             owner = self.read_owner()
             with open(PID_PATH, 'w', encoding='utf-8') as file:
-                file.write('%d %s' % (self.pid, self.mode))
+                file.write(f'{self.pid} {self.mode}')
             if owner and owner[0].isdigit() and int(owner[0]) != self.pid:
                 return int(owner[0])
             return None
@@ -290,7 +290,7 @@ def play(items, engine, config, player):
 
     rendered[0] = render_item(engine, items[0], config)
     ready[0].set()
-    debug('item 0 ready of %d' % len(items))
+    debug(f'item 0 ready of {len(items)}')
     threading.Thread(target=produce, daemon=True).start()
 
     player.claim()
@@ -305,7 +305,7 @@ def play(items, engine, config, player):
                 continue
             if index == len(items) - 1:
                 audio = ttsengine.fade_tail(audio, engine.rate, config['end_fade_ms'])
-            debug('play %d %.2fs' % (index, len(audio) / float(engine.rate)))
+            debug(f'play {index} {len(audio) / float(engine.rate):.2f}s')
             winsound.PlaySound(ttsengine.to_wav(audio, engine.rate),
                                winsound.SND_MEMORY | winsound.SND_NODEFAULT)
     finally:
@@ -331,7 +331,7 @@ def speak(text, voice=None, interrupt=False):
             engine = ttsengine.Engine(config['threads'])
         except Exception:
             engine = None
-    debug('engine %s, %d units' % ('loaded' if engine else 'missing', len(units)))
+    debug(f'engine {"loaded" if engine else "missing"}, {len(units)} units')
     if engine is None:
         player.claim()
         try:

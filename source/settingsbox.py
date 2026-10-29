@@ -116,9 +116,9 @@ class SettingsBox(ScrollArea):
                                 len(settings.get('hidden_projects', [])))
 
     def set_project_counts(self, excluded, hidden):
-        self.projects.description = ('%d left out of every number' % excluded if excluded
+        self.projects.description = (f'{int(excluded)} left out of every number' if excluded
                                      else 'None — use Exclude on a session')
-        self.hidden.description = ('%d hidden from the session list' % hidden if hidden
+        self.hidden.description = (f'{int(hidden)} hidden from the session list' if hidden
                                    else 'None — use Hide on a session')
         self.projects.Refresh()
         self.hidden.Refresh()
@@ -251,8 +251,8 @@ class SettingsBox(ScrollArea):
         if self.reindex.tone != 'warn':
             return
         if requests:
-            text = 'Up to %s requests ($%s) from deleted files will be lost' % (
-                format(requests, ','), format(round(cost), ','))
+            text = (f'Up to {format(requests, ",")} requests (${format(round(cost), ",")}) from '
+                    'deleted files will be lost')
         else:
             text = 'Nothing kept from deleted files. Safe to rebuild'
         self.reindex.set_description(text)

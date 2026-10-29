@@ -140,11 +140,11 @@ def count(value):
     value = value or 0
     size = abs(value)
     if size >= 1e9:
-        return '%.1fB' % (value / 1e9)
+        return f'{value / 1000000000.0:.1f}B'
     if size >= 1e6:
-        return '%.1fM' % (value / 1e6)
+        return f'{value / 1000000.0:.1f}M'
     if size >= 1e3:
-        return '%.1fK' % (value / 1e3)
+        return f'{value / 1000.0:.1f}K'
     return str(js_round(value))
 
 
@@ -157,26 +157,26 @@ def ago(ms):
     if seconds < 60:
         return 'just now'
     if seconds < 3600:
-        return '%dm ago' % (seconds // 60)
+        return f'{int(seconds // 60)}m ago'
     if seconds < 86400:
-        return '%dh ago' % (seconds // 3600)
-    return '%dd ago' % (seconds // 86400)
+        return f'{int(seconds // 3600)}h ago'
+    return f'{int(seconds // 86400)}d ago'
 
 
 def countdown(until):
     seconds = max(0, js_round(until - time.time()))
     days, hours, minutes = seconds // 86400, seconds % 86400 // 3600, seconds % 3600 // 60
     if days:
-        return '%dd %dh' % (days, hours)
+        return f'{days}d {hours}h'
     if hours:
-        return '%dh %dm' % (hours, minutes)
-    return '%dm' % max(1, minutes)
+        return f'{hours}h {minutes}m'
+    return f'{max(1, minutes)}m'
 
 
 def clock(at):
     moment = time.localtime(js_round(at / 60.0) * 60)
-    return '%d/%d %s %02d:%02d' % (moment.tm_mon, moment.tm_mday, WEEKDAYS[moment.tm_wday],
-                                   moment.tm_hour, moment.tm_min)
+    return (f'{int(moment.tm_mon)}/{int(moment.tm_mday)} {WEEKDAYS[moment.tm_wday]} '
+            f'{int(moment.tm_hour):02d}:{int(moment.tm_min):02d}')
 
 
 def short_day(day):
@@ -790,7 +790,7 @@ class Banner(Canvas):
         fill_rect(gc, theme['accent'], 0, 6, 2, self.HEIGHT - 12, 1)
         font = get_font(BODY)
         gc.SetFont(font, wx.Colour(theme['text']))
-        gc.DrawText('Indexing usage history… %d%%' % js_round(self.value * 100), PAD,
+        gc.DrawText(f'Indexing usage history… {js_round(self.value * 100)}%', PAD,
                     get_text_top(font, 8, LINE[BODY]))
         top = 8 + LINE[BODY] + 6
         span = width - PAD * 2
@@ -977,7 +977,7 @@ class UsageBox(ScrollArea):
         symbol = {'USD': '$', 'KRW': '₩', 'JPY': '¥'}.get(currency, '$')
         if currency in ('KRW', 'JPY'):
             digits = 0
-        return symbol + format((value or 0) * rate, ',.%df' % digits)
+        return symbol + format((value or 0) * rate, f',.{int(digits)}f')
 
     def set_progress(self, value):
         shown = value is not None and value < 1
@@ -1017,10 +1017,10 @@ class UsageBox(ScrollArea):
         half = (right - left - 12) / 2.0
         if data:
             totals = data['all'] if all_time else data['today']
-            values = (self.money(totals['cost']), '%d%%' % js_round(totals['ratio'] * 100))
-            notes = ('%s calls  /  %d sessions' % (count(totals['calls']), totals['sessions']),
-                     '+ %s%s' % (self.money(totals['saved']),
-                                 ' saved total' if all_time else ' saved today'))
+            values = (self.money(totals['cost']), f'{js_round(totals["ratio"] * 100)}%')
+            saved = ' saved total' if all_time else ' saved today'
+            notes = (f'{count(totals["calls"])} calls  /  {int(totals["sessions"])} sessions',
+                     f'+ {self.money(totals["saved"])}{saved}')
         else:
             values, notes = ('—', '—'), ('', '')
         y = PAD
@@ -1091,7 +1091,7 @@ class UsageBox(ScrollArea):
         if status.get('age') is None:
             shown = ' No earlier snapshot to show.'
         else:
-            shown = ' Showing the last snapshot from %s.' % ago((time.time() - status['age']) * 1000)
+            shown = f' Showing the last snapshot from {ago((time.time() - status["age"]) * 1000)}.'
         lines = p.wrap(reason + shown, NOTE, width - 16)
         action = None
         if self.login_state:
@@ -1151,10 +1151,10 @@ class UsageBox(ScrollArea):
             name = name[len('Codex · '):]
         base = p.baseline(MAIN, y, LINE[MAIN], True)
         right = x + width
-        right -= p.text_on('%d%%' % limit['percent'], right, base, MAIN, tint, True, 'right')
+        right -= p.text_on(f'{int(limit["percent"])}%', right, base, MAIN, tint, True, 'right')
         if limit.get('elapsed') is not None:
-            right -= 8 + p.text_on('%d%% elapsed' % limit['elapsed'], right - 8, base, NOTE, 'dim',
-                                   align='right')
+            right -= 8 + p.text_on(f'{int(limit["elapsed"])}% elapsed', right - 8, base, NOTE,
+                                   'dim', align='right')
         name_width = p.text_on(name, x, base, BODY)
         when = (limit.get('when') or '') + (' · ' + clock(limit['reset_at'])
                                             if limit.get('reset_at') else '')
@@ -1183,15 +1183,15 @@ class UsageBox(ScrollArea):
                        here - start, BAR_HEIGHT, BAR_RADIUS)
             if start < here < end - 1:
                 p.fill('face', here, y, 1, BAR_HEIGHT)
-        fields = [name, '%d%% used' % limit['percent']]
+        fields = [name, f'{int(limit["percent"])}% used']
         if limit.get('elapsed') is not None:
-            fields.append('%d%% of the window elapsed' % limit['elapsed'])
+            fields.append(f'{int(limit["elapsed"])}% of the window elapsed')
         if split:
-            fields.append('This device ≈ %d%% · elsewhere ≈ %d%%' % (
-                js_round(share['here']), js_round(share['elsewhere'])))
+            fields.append(f'This device ≈ {js_round(share["here"])}% · elsewhere ≈ '
+                          f'{js_round(share["elsewhere"])}%')
         if when.strip(' ·'):
             fields.append(when.strip(' ·'))
-        p.zone(x, y - 5, width, BAR_HEIGHT + 10, 'limit:%s' % limit['name'], tip='  '.join(fields))
+        p.zone(x, y - 5, width, BAR_HEIGHT + 10, f'limit:{limit["name"]}', tip='  '.join(fields))
         y += BAR_HEIGHT
         if share:
             y = self.draw_share(p, share, x, y, width)
@@ -1211,14 +1211,14 @@ class UsageBox(ScrollArea):
             p.text('This device\'s share needs a few more hours of readings', x, y, NOTE, 'dim',
                    limit=width)
             return y + LINE[NOTE]
-        parts = [('This device ', 'dim', False), ('≈ %d%%' % js_round(share['here']), 'text', True),
+        parts = [('This device ', 'dim', False), (f'≈ {js_round(share["here"])}%', 'text', True),
                  ('   Elsewhere ', 'dim', False),
-                 ('≈ %d%%' % js_round(share['elsewhere']), 'text', True)]
+                 (f'≈ {js_round(share["elsewhere"])}%', 'text', True)]
         if share['unclear'] >= 0.5:
-            parts += [('   Unclear ', 'dim', False), ('%d%%' % js_round(share['unclear']), 'text',
+            parts += [('   Unclear ', 'dim', False), (f'{js_round(share["unclear"])}%', 'text',
                                                       True)]
         shown = p.rich(parts, x, y, NOTE, limit=width)
-        p.zone(x, y, min(shown, width), LINE[NOTE], 'share:%d' % y,
+        p.zone(x, y, min(shown, width), LINE[NOTE], f'share:{int(y)}',
                tip='Estimate. A rise between two readings counts for this device when it '
                    'used the agent then; long gaps are split by its usual percent per dollar. '
                    'Elsewhere covers other devices and the web or mobile apps.')
@@ -1233,7 +1233,7 @@ class UsageBox(ScrollArea):
         p.fade = 0.45 if resets.get('stale') else 0.0
         y += PAD
         base = p.baseline(MAIN, y, LINE[MAIN], True)
-        right = x + width - p.text_on('%d available' % len(credits), x + width, base, MAIN,
+        right = x + width - p.text_on(f'{len(credits)} available', x + width, base, MAIN,
                                       'accent', True, 'right')
         name_width = p.text_on('Force resets', x, base, BODY)
         nxt = credits[0].get('expires') if credits else None
@@ -1247,7 +1247,7 @@ class UsageBox(ScrollArea):
             for order, credit in enumerate(credits):
                 expires = credit.get('expires')
                 soon = bool(expires) and expires - now < RESET_SOON
-                parts = [('#%d ' % (order + 1), 'dim', False),
+                parts = [(f'#{order + 1} ', 'dim', False),
                          (countdown(expires) if expires else 'no expiry',
                           'warn' if soon else 'text', True)]
                 if soon:
@@ -1263,7 +1263,7 @@ class UsageBox(ScrollArea):
         height = LINE[NOTE] + 4
         p.rim('warn' if soon else 'edge', left, top, width, height)
         p.rich(parts, left + 8, top + 2, NOTE)
-        p.zone(left, top, width, height, 'credit:%s' % credit.get('title'), tip=credit.get('title'))
+        p.zone(left, top, width, height, f'credit:{credit.get("title")}', tip=credit.get('title'))
 
     def draw_chart(self, p, x, y, width, head_left, head_right, points, small=False, axis=None,
                    slotted=False):
@@ -1296,7 +1296,7 @@ class UsageBox(ScrollArea):
         palette = self.palette
         for index, point in enumerate(points):
             left, slot = self.get_slot(x, width, len(points), index)
-            key = point.get('zone') or 'bar:%d' % index
+            key = point.get('zone') or f'bar:{index}'
             value = point['value']
             if value:
                 size = max(1, round(abs(value) / span * area))
@@ -1357,7 +1357,7 @@ class UsageBox(ScrollArea):
         per100 = cost / total['added'] * 100 if total['added'] else 0
         average = data['all']['cost'] / everything['added'] * 100 if everything['added'] else 0
         kpis = (('Commits', str(total['commits']),
-                 'all time' if all_time else '%d total' % everything['commits']),
+                 'all time' if all_time else f'{int(everything["commits"])} total'),
                 ('Net lines', signed(net), count(total['added'] + total['removed']) + ' lines'),
                 ('$/100 added', self.money(per100, 2) if total['added'] else '—',
                  'avg ' + self.money(average, 2)))
@@ -1370,16 +1370,16 @@ class UsageBox(ScrollArea):
             item = code.get(day)
             gain = item['added'] - item['removed'] if item else 0
             points.append({'value': gain, 'now': day == today,
-                           'title': '%s  %s net lines' % (short_day(day), signed(gain))})
+                           'title': f'{short_day(day)}  {signed(gain)} net lines'})
         week_net = sum(point['value'] for point in points)
         total_net = everything['added'] - everything['removed']
         y += PAD
         y = self.draw_chart(p, x, y, area, [('Net lines · last 7 days', 'dim', False)],
                             [(signed(week_net), 'text', True),
-                             (' this week · %s all time' % signed(total_net), 'dim', False)],
+                             (f' this week · {signed(total_net)} all time', 'dim', False)],
                             points, axis=[short_day(day) for day in week], slotted=True)
         y += 6
-        p.text('%d repos' % data['repos'], width / 2.0, y, NOTE, 'dim', align='center')
+        p.text(f'{int(data["repos"])} repos', width / 2.0, y, NOTE, 'dim', align='center')
         return y + LINE[NOTE] + PAD
 
     def draw_kpis(self, p, kpis, x, y, area):
@@ -1411,7 +1411,7 @@ class UsageBox(ScrollArea):
         cells = []
         for value, label in CHOICES[name]:
             def draw(left, top, value=value, label=label):
-                p.button(left, top, label, 'seg:%s:%s' % (name, value),
+                p.button(left, top, label, f'seg:{name}:{value}',
                          lambda: self.set_view(name, value), lit=self.view[name] == value)
             cells.append((get_button_width(label), draw))
         if split:
@@ -1490,14 +1490,14 @@ class UsageBox(ScrollArea):
         def slots(name, value):
             return [{'value': value(point), 'now': point['key'] == current,
                      'picked': point['key'] == self.view['picked'],
-                     'zone': '%s:%s' % (name, point['key']),
+                     'zone': f'{name}:{point["key"]}',
                      'action': lambda key=point['key']: self.pick(key),
-                     'title': '%s  %s  %d requests  %s net lines' % (
-                         bucket_label(point['key'], grain), fmt(point[metric], 2), point['calls'],
-                         signed(point['net']))} for point in points]
+                     'title': f'{bucket_label(point["key"], grain)}  {fmt(point[metric], 2)}  '
+                              f'{int(point["calls"])} requests  {signed(point["net"])} net lines'}
+                    for point in points]
         y = self.draw_chart(p, x, y, area,
-                            [('%s · peak %s' % ('Cost' if metric == 'cost' else 'Tokens',
-                                                fmt(peak)), 'dim', False)],
+                            [(f'{"Cost" if metric == "cost" else "Tokens"} · peak {fmt(peak)}',
+                              'dim', False)],
                             [('now ', 'dim', False), (fmt(last[metric]), 'text', True)],
                             slots('metric', lambda point: point[metric]))
         y += PAD
@@ -1527,7 +1527,7 @@ class UsageBox(ScrollArea):
             left = x + 92 + 8
             p.track(left, y + (LINE[NOTE] - BAR_HEIGHT) // 2,
                     max(0, x + width - value_width - 8 - left), row[1] / float(top) if top else 0)
-            p.zone(x, y, width, LINE[NOTE], 'meter:%d:%d' % (x, y), tip='%s  %s' % (row[0], value))
+            p.zone(x, y, width, LINE[NOTE], f'meter:{int(x)}:{int(y)}', tip=f'{row[0]}  {value}')
             y += LINE[NOTE]
         return y
 
@@ -1558,7 +1558,7 @@ class UsageBox(ScrollArea):
         y += 1 + PAD
         grain = self.view['grain']
         y = self.draw_heading(p, ('Week ' if grain == 'week' else '') + bucket_label(bucket['key'], grain),
-                              '%s · %d requests' % (self.money(bucket['cost'], 2), bucket['calls']),
+                              f'{self.money(bucket["cost"], 2)} · {int(bucket["calls"])} requests',
                               x, y, width, first=True)
         y = self.draw_heading(p, 'Token panorama', 'input + output · cache', x, y, width)
         y = self.draw_meters(p, token_rows, max(row[1] for row in token_rows),
@@ -1566,11 +1566,12 @@ class UsageBox(ScrollArea):
         y = self.draw_heading(p, 'Tool usage', 'calls · ≈tok', x, y, width)
         if tool_rows:
             y = self.draw_meters(p, tool_rows, tool_rows[0][1],
-                                 lambda row: '%d · ≈%s' % (row[1], count(row[2])), x, y, width)
+                                 lambda row: f'{int(row[1])} · ≈{count(row[2])}', x, y, width)
         else:
             y = self.draw_empty(p, 'No tool data', x, y, width)
-        y = self.draw_heading(p, 'Net lines committed', '%s added / %s removed' % (
-            count(code['added']), count(code['removed'])), x, y, width)
+        y = self.draw_heading(p, 'Net lines committed',
+                              f'{count(code["added"])} added / {count(code["removed"])} removed',
+                              x, y, width)
         if path_rows:
             top = max(abs(row[1]) for row in path_rows)
             y = self.draw_meters(p, [(row[0], abs(row[1]), row[1]) for row in path_rows], top,
@@ -1613,16 +1614,16 @@ class UsageBox(ScrollArea):
         foot = []
         if len(rows) > SESSION_LIMIT:
             foot.append(('more', 'Show less' if view['showAll'] else
-                         'Show %d more' % (len(rows) - SESSION_LIMIT),
+                         f'Show {len(rows) - SESSION_LIMIT} more',
                          lambda: self.toggle_flag('showAll')))
         if view['sessionFilter'] == 'all' and idle and live:
-            foot.append(('idle', '%s %d idle session%s' % ('Hide' if view['showIdle'] else 'Show',
-                                                          idle, '' if idle == 1 else 's'),
+            verb = 'Hide' if view['showIdle'] else 'Show'
+            foot.append(('idle', f'{verb} {idle} idle session{"" if idle == 1 else "s"}',
                          lambda: self.toggle_flag('showIdle')))
         if hidden:
-            foot.append(('hidden', '%d hidden project%s · %s' % (
-                len(hidden), '' if len(hidden) == 1 else 's',
-                'hide' if view['showHidden'] else 'show'), lambda: self.toggle_flag('showHidden')))
+            verb = 'hide' if view['showHidden'] else 'show'
+            foot.append(('hidden', f'{len(hidden)} hidden project{"" if len(hidden) == 1 else "s"} '
+                                   f'· {verb}', lambda: self.toggle_flag('showHidden')))
         if foot:
             items = [(p.width(text, NOTE), lambda left, top, key=key, text=text, action=action:
                       p.link(text, left, top, 'foot:' + key, action)) for key, text, action in foot]
@@ -1640,7 +1641,7 @@ class UsageBox(ScrollArea):
     def draw_session(self, p, item, hidden, x, y, width):
         context_max = item.get('contextMax') or 0
         pct = min(100.0, item['context'] / float(context_max) * 100) if context_max else 0
-        key = '%s:%s' % (item['provider'], item['session'])
+        key = f'{item["provider"]}:{item["session"]}'
         is_open = self.view['openSession'] == key
 
         base = p.baseline(MAIN, y, LINE[MAIN], True)
@@ -1661,7 +1662,7 @@ class UsageBox(ScrollArea):
         meta = [item.get('model'), item.get('source'),
                 count(item['tokens']) + ' tok' if item.get('tokens') else None,
                 self.money(item['cost'], 2) if item.get('cost') else None,
-                '%d %s' % (item['calls'], 'steps' if item['provider'] == 'antigravity' else 'calls')]
+                f'{int(item["calls"])} {"steps" if item["provider"] == "antigravity" else "calls"}']
         items = [(p.width(text, NOTE), lambda left, top, text=text: p.text(text, left, top, NOTE, 'dim'))
                  for text in meta if text]
         y = flow(items, x, y + 3, width, 10, 2, LINE[NOTE], center=False)
@@ -1670,15 +1671,15 @@ class UsageBox(ScrollArea):
             y += 5
             near = 'at limit' if pct >= 95 else 'compact soon' if pct >= 85 else \
                 'near limit' if pct >= 70 else ''
-            text = 'Context %d%% · %s' % (js_round(pct), near or
-                                          count(context_max - item['context']) + ' left')
+            text = (f'Context {js_round(pct)}% · '
+                    f'{near or count(context_max - item["context"]) + " left"}')
             text_width = p.text(text, x + width, y, NOTE, 'dim', align='right')
             colour = 'close' if pct >= 95 else 'warn' if pct >= 70 else 'accent'
             p.track(x, y + (LINE[NOTE] - BAR_HEIGHT) // 2, max(0, width - text_width - 8),
                     pct / 100.0, colour)
             left = near or count(context_max - item['context']) + ' left'
-            p.zone(x, y, width, LINE[NOTE], 'context:%d:%d' % (x, y),
-                   tip='Context  %d%% used  %s' % (js_round(pct), left))
+            p.zone(x, y, width, LINE[NOTE], f'context:{int(x)}:{int(y)}',
+                   tip=f'Context  {js_round(pct)}% used  {left}')
             y += LINE[NOTE]
 
         if is_open:
@@ -1691,7 +1692,7 @@ class UsageBox(ScrollArea):
             total = sum(row[1] for row in tools)
             if tools:
                 y = self.draw_meters(p, tools, tools[0][1],
-                                     lambda row: '%d%%' % js_round(row[1] / float(total) * 100),
+                                     lambda row: f'{js_round(row[1] / float(total) * 100)}%',
                                      x, y, width)
             else:
                 y = self.draw_empty(p, 'No tool data', x, y, width)
@@ -1704,7 +1705,7 @@ class UsageBox(ScrollArea):
         project = item.get('project')
         if project:
             command = 'unhide' if project in hidden else 'hide'
-            left += p.link(command.capitalize(), left, y, '%s:%s' % (command, key),
+            left += p.link(command.capitalize(), left, y, f'{command}:{key}',
                            lambda: self.toggle_project(command, project)) + 10
             p.link('Exclude', left, y, 'exclude:' + key,
                    lambda: self.toggle_project('exclude', project))
@@ -1765,8 +1766,8 @@ class UsageBox(ScrollArea):
             p.text(short_day(day), left, y, TINY, 'dim', line=size)
             for hour, value in enumerate(activity['heat'][row]):
                 self.draw_cell(p, shades[get_level(value, peak)],
-                               grid + hour * (size + CELL_GAP), y, size, 'heat:%d:%d' % (row, hour),
-                               '%s %d:00  %s tok' % (short_day(day), hour, count(value)))
+                               grid + hour * (size + CELL_GAP), y, size, f'heat:{int(row)}:{hour}',
+                               f'{short_day(day)} {hour}:00  {count(value)} tok')
             y += size + CELL_GAP
         return self.draw_legend(p, left + box, y - CELL_GAP + 8)
 
@@ -1783,7 +1784,7 @@ class UsageBox(ScrollArea):
             column, row = divmod(first + index, 7)
             self.draw_cell(p, shades[get_level(value, peak)],
                            left + column * (size + CELL_GAP), y + row * (size + CELL_GAP), size,
-                           'day:' + day, '%s  %s tok' % (day, count(value)))
+                           'day:' + day, f'{day}  {count(value)} tok')
         y += 7 * size + 6 * CELL_GAP
         y = self.draw_legend(p, left + box, y + 8)
         return self.draw_caption_row(p, '5mo activity', count(sum(value for _, value in days)) +
@@ -1800,11 +1801,11 @@ class UsageBox(ScrollArea):
         peak = max(values)
         peak_hour = values.index(peak)
         points = [{'value': value, 'now': hour == peak_hour,
-                   'title': '%d:00  %s tok  %s' % (hour, count(value),
-                                                   self.money(activity['hourly'][hour][1], 2))}
+                   'title': f'{int(hour)}:00  {count(value)} tok  '
+                            f'{self.money(activity["hourly"][hour][1], 2)}'}
                   for hour, value in enumerate(values)]
         return self.draw_chart(p, x, y, area, [('Hourly · last 30 days', 'dim', False)],
-                               [('peak ', 'dim', False), ('%d:00' % peak_hour, 'text', True)],
+                               [('peak ', 'dim', False), (f'{int(peak_hour)}:00', 'text', True)],
                                points, axis=[str(hour) if hour in (0, 6, 12, 18, 23) else ''
                                              for hour in range(24)], slotted=True)
 
@@ -1814,16 +1815,15 @@ class UsageBox(ScrollArea):
         for index, week in enumerate(weeks):
             current = index == len(weeks) - 1
             y += 6
-            p.text('current' if current else '%dw ago' % (len(weeks) - 1 - index), x, y, NOTE,
+            p.text('current' if current else f'{len(weeks) - 1 - index}w ago', x, y, NOTE,
                    'dim', limit=70)
-            p.text('%s · %s' % (count(week['tokens']), self.money(week['cost'])), x + area, y,
+            p.text(f'{count(week["tokens"])} · {self.money(week["cost"])}', x + area, y,
                    NOTE, align='right', limit=90)
             p.track(x + 78, y + (LINE[NOTE] - BAR_HEIGHT) // 2, max(0, area - 78 - 98),
                     week['tokens'] / float(peak), 'accent' if current else 'soft')
-            p.zone(x, y, area, LINE[NOTE], 'week:%d' % index,
-                   tip='%s  %s tok  %s' % ('This week' if current else
-                                           '%d weeks ago' % (len(weeks) - 1 - index),
-                                           count(week['tokens']), self.money(week['cost'])))
+            p.zone(x, y, area, LINE[NOTE], f'week:{index}',
+                   tip=f'{"This week" if current else f"{len(weeks) - 1 - index} weeks ago"}  '
+                       f'{count(week["tokens"])} tok  {self.money(week["cost"])}')
             y += LINE[NOTE]
         return self.draw_caption_row(p, '4-week total', count(sum(week['tokens'] for week in weeks))
                                      + ' tok', x, y, area)
@@ -1836,11 +1836,11 @@ class UsageBox(ScrollArea):
             for hour in range(start, end):
                 for index in range(3):
                     total[index] += activity['hourly'][hour][index]
-            rows.append(('%s (%d–%d)' % (name, start, end), total))
+            rows.append((f'{name} ({int(start)}–{int(end)})', total))
         total_cost = sum(row[1][1] for row in rows)
         peak = max(rows, key=lambda row: row[1][0])
         cells = [[count(row[1][0]), self.money(row[1][1]), count(row[1][2]),
-                  '%d%%' % (js_round(row[1][1] / total_cost * 100) if total_cost else 0)]
+                  f'{js_round(row[1][1] / total_cost * 100) if total_cost else 0}%']
                  for row in rows]
         heads = ('Tokens', 'Cost', 'Requests', '%')
         widths = [max([p.width(heads[index], SMALL)] + [p.width(row[index], NOTE) for row in cells])
@@ -1863,7 +1863,7 @@ class UsageBox(ScrollArea):
             for index, value in enumerate(values):
                 p.text(value, rights[index], y, NOTE, align='right')
             y += LINE[NOTE] + 4
-        return self.draw_caption_row(p, 'Peak: ' + peak[0], '30d · %s total' % self.money(total_cost),
+        return self.draw_caption_row(p, 'Peak: ' + peak[0], f'30d · {self.money(total_cost)} total',
                                      x, y, area)
 
     def draw_models(self, p, width):
@@ -1879,7 +1879,7 @@ class UsageBox(ScrollArea):
             if index:
                 y += 8
             base = p.baseline(BODY, y, LINE[BODY])
-            note = ' %d%% · %s tok' % (js_round(model['cost'] / total * 100), count(model['tokens']))
+            note = f' {js_round(model["cost"] / total * 100)}% · {count(model["tokens"])} tok'
             right = x + inner - p.text_on(note, x + inner, base, NOTE, 'dim', align='right')
             right -= p.text_on(self.money(model['cost']), right, base, BODY, align='right')
             tag = 0
@@ -1894,10 +1894,10 @@ class UsageBox(ScrollArea):
             y += LINE[BODY] + 2
             p.track(x, y, inner, model['cost'] / total)
             y += BAR_HEIGHT
-            p.zone(x, row_top, inner, y - row_top, 'model:%d' % index,
-                   tip='%s  %s  %d%% of cost  %s tok' % (
-                       model['model'], self.money(model['cost']),
-                       js_round(model['cost'] / total * 100), count(model['tokens'])))
+            p.zone(x, row_top, inner, y - row_top, f'model:{index}',
+                   tip=f'{model["model"]}  {self.money(model["cost"])}  '
+                       f'{js_round(model["cost"] / total * 100)}% of cost  '
+                       f'{count(model["tokens"])} tok')
         return y + PAD
 
     def set_options(self, **options):

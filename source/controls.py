@@ -879,7 +879,7 @@ class SliderCard(NumberEntry, CardBase):
     def format(self, value):
         if self.digits == 0:
             return str(int(round(value)))
-        return ('%%.%df' % self.digits) % value
+        return f'{value:.{self.digits}f}'
 
     def GetValue(self):
         if self.digits == 0:

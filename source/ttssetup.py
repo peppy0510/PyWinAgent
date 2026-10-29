@@ -44,7 +44,7 @@ def get_python():
 
 
 def get_command(argument):
-    return '& "%s" "%s" %s' % (get_python(), HOOK_SCRIPT, argument)
+    return f'& "{get_python()}" "{HOOK_SCRIPT}" {argument}'
 
 
 def read_settings():

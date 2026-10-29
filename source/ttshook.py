@@ -162,7 +162,7 @@ def get_window_label(hwnd):
     l, t, r, b = monitors[index]
     column = min(2, max(0, int((x - l) * 3 // max(1, r - l))))
     row = min(2, max(0, int((y - t) * 3 // max(1, b - t))))
-    return '%s번 모니터 %s %s' % (read_sino(index + 1), ROWS[row], COLUMNS[column])
+    return f'{read_sino(index + 1)}번 모니터 {ROWS[row]} {COLUMNS[column]}'
 
 
 def read_last_reply(path):
@@ -203,11 +203,11 @@ def strip_markdown(text, max_chars):
 def get_prefix(session):
     tag = (os.environ.get('CLAUDE_TTS_TAG') or '').strip()
     if tag:
-        return '%s번 창. ' % tag if tag.isdigit() else '%s. ' % tag
+        return f'{tag}번 창. ' if tag.isdigit() else f'{tag}. '
     label = get_window_label(session.get('hwnd'))
     if label:
-        return '%s 클로드입니다. ' % label
-    return '%d번 창. ' % session['n']
+        return f'{label} 클로드입니다. '
+    return f'{int(session["n"])}번 창. '
 
 
 def speak_detached(text, voice):

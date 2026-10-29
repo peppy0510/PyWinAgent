@@ -274,8 +274,8 @@ def _selftest(result_path):
         mark = 'PASS' if got == want else 'FAIL'
         if got == want:
             ok += 1
-        lines.append('%s  %-14r want=%-20s got=%s' % (mark, src, want, got))
-    lines.insert(0, '%d/%d passed' % (ok, len(TESTS)))
+        lines.append(f'{mark}  {src!r:<14} want={want:20} got={got}')
+    lines.insert(0, f'{ok}/{len(TESTS)} passed')
     with open(result_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines) + '\n')
 

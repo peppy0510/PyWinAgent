@@ -201,7 +201,7 @@ class TtsBox(ScrollArea):
             else:
                 ttssetup.install_hooks()
         except Exception as error:
-            self.hook.set_description('Could not change the hook: %s' % error)
+            self.hook.set_description(f'Could not change the hook: {error}')
             return
         self.update_hook()
 
@@ -237,7 +237,7 @@ class TtsBox(ScrollArea):
         if text and text != old and self.hotkey.set_text(text):
             self.hotkey_text = text
         if self.paused and not self.hotkey.set_active(True):
-            description = '%s is taken by another app' % self.hotkey_text
+            description = f'{self.hotkey_text} is taken by another app'
             self.hotkey.set_text(old)
             self.hotkey_text = old
             self.hotkey.set_active(True)

@@ -120,19 +120,19 @@ def get_local(days):
     if len(offsets) != 1:
         return LOCAL_DAY, LOCAL_HOUR
     offset = offsets.pop()
-    return ("date(ts / 1000 + %d, 'unixepoch')" % offset,
-            "CAST(strftime('%%H', ts / 1000 + %d, 'unixepoch') AS INTEGER)" % offset)
+    return (f"date(ts / 1000 + {int(offset)}, 'unixepoch')",
+            f"CAST(strftime('%H', ts / 1000 + {int(offset)}, 'unixepoch') AS INTEGER)")
 
 
 def get_filter(options, column_prefix=''):
     agents = [name for name in options['agents'] if name != 'antigravity']
     if not agents:
         return '0', []
-    sql = '%sprovider IN (%s)' % (column_prefix, ','.join('?' * len(agents)))
+    sql = f'{column_prefix}provider IN ({",".join("?" * len(agents))})'
     args = list(agents)
     excluded = options.get('excluded') or []
     if excluded:
-        sql += ' AND %sproject NOT IN (%s)' % (column_prefix, ','.join('?' * len(excluded)))
+        sql += f' AND {column_prefix}project NOT IN ({",".join("?" * len(excluded))})'
         args += excluded
     return sql, args
 
@@ -166,10 +166,10 @@ def get_totals(index, where, args, since_day=None):
         extra = ' AND ts >= ?'
         extra_args = [get_midnight(since_day)]
     row = index.query('SELECT COALESCE(SUM(cost), 0), COALESCE(SUM(saved), 0), COUNT(*), '
-                      'COUNT(DISTINCT session) FROM entries WHERE %s%s' % (where, extra),
+                      f'COUNT(DISTINCT session) FROM entries WHERE {where}{extra}',
                       args + extra_args)[0]
     ratio_rows = index.query('SELECT provider, SUM(input), SUM(cache_write), SUM(cache_read) '
-                             'FROM entries WHERE %s%s GROUP BY provider' % (where, extra),
+                             f'FROM entries WHERE {where}{extra} GROUP BY provider',
                              args + extra_args)
     return {'cost': row[0], 'saved': row[1], 'calls': row[2], 'sessions': row[3],
             'ratio': get_cache_ratio(ratio_rows)}
@@ -339,7 +339,7 @@ def get_tool_filter(options):
     excluded = options.get('excluded') or []
     if excluded and args:
         where += (' AND session NOT IN (SELECT DISTINCT session FROM entries '
-                  'WHERE project IN (%s))' % ','.join('?' * len(excluded)))
+                  f'WHERE project IN ({",".join("?" * len(excluded))}))')
         args = args + list(excluded)
     return where, args
 
@@ -365,14 +365,14 @@ def get_plans(index, options):
 def get_daily(index, options, where, args, local):
     since = get_day(TREND_DAYS)
     rows = index.query(
-        'SELECT %s AS day, SUM(cost), SUM(%s), COUNT(*), SUM(input), SUM(output), '
+        f'SELECT {local[0]} AS day, SUM(cost), SUM({TOKENS}), COUNT(*), SUM(input), SUM(output), '
         'SUM(cache_read), SUM(cache_write), SUM(reasoning) FROM entries '
-        'WHERE %s AND ts >= ? GROUP BY day ORDER BY day' % (local[0], TOKENS, where),
+        f'WHERE {where} AND ts >= ? GROUP BY day ORDER BY day',
         args + [get_midnight(since)])
     tool_where, tool_args = get_tool_filter(options)
     tools = index.query(
-        'SELECT %s AS day, category, COUNT(*), SUM(tokens) FROM tools '
-        'WHERE %s AND ts >= ? GROUP BY day, category' % (local[0], tool_where),
+        f'SELECT {local[0]} AS day, category, COUNT(*), SUM(tokens) FROM tools '
+        f'WHERE {tool_where} AND ts >= ? GROUP BY day, category',
         tool_args + [get_midnight(since)])
     daily = {}
     for day, cost, tokens, calls, fresh, output, read, written, thinking in rows:
@@ -389,8 +389,8 @@ def get_daily(index, options, where, args, local):
 def get_activity(index, where, args, local):
     today = get_day()
     hours = index.query(
-        'SELECT %s AS day, %s AS hour, SUM(%s), SUM(cost), COUNT(*) FROM entries '
-        'WHERE %s AND ts >= ? GROUP BY day, hour' % (local[0], local[1], TOKENS, where),
+        f'SELECT {local[0]} AS day, {local[1]} AS hour, SUM({TOKENS}), SUM(cost), COUNT(*) FROM '
+        f'entries WHERE {where} AND ts >= ? GROUP BY day, hour',
         args + [get_midnight(get_day(max(HOURLY_DAYS, HEAT_DAYS) - 1))])
     days = [get_day(index) for index in range(HEAT_DAYS - 1, -1, -1)]
     heat = {day: [0] * 24 for day in days}
@@ -405,8 +405,8 @@ def get_activity(index, where, args, local):
     weekday = int(time.strftime('%w'))
     span = CALENDAR_WEEKS * 7 - (6 - weekday)
     calendar_rows = index.query(
-        'SELECT %s AS day, SUM(%s) FROM entries WHERE %s AND ts >= ? GROUP BY day'
-        % (local[0], TOKENS, where), args + [get_midnight(get_day(span - 1))])
+        f'SELECT {local[0]} AS day, SUM({TOKENS}) FROM entries WHERE {where} AND ts >= ? GROUP BY '
+        'day', args + [get_midnight(get_day(span - 1))])
     calendar = dict(calendar_rows)
     calendar_days = [[get_day(offset), calendar.get(get_day(offset), 0)]
                      for offset in range(span - 1, -1, -1)]
@@ -414,9 +414,8 @@ def get_activity(index, where, args, local):
     weeks = []
     for week in range(3, -1, -1):
         start, end = get_day(week * 7 + 6), get_day(week * 7)
-        row = index.query('SELECT COALESCE(SUM(%s), 0), COALESCE(SUM(cost), 0), COUNT(*) '
-                          'FROM entries WHERE %s AND ts >= ? AND ts < ?'
-                          % (TOKENS, where),
+        row = index.query(f'SELECT COALESCE(SUM({TOKENS}), 0), COALESCE(SUM(cost), 0), COUNT(*) '
+                          f'FROM entries WHERE {where} AND ts >= ? AND ts < ?',
                           args + [get_midnight(start), get_midnight(get_day(week * 7 - 1))])[0]
         weeks.append({'from': start, 'to': end, 'tokens': row[0], 'cost': row[1],
                       'calls': row[2]})
@@ -426,9 +425,9 @@ def get_activity(index, where, args, local):
 
 
 def get_models(index, where, args):
-    rows = index.query('SELECT model, provider, SUM(cost), SUM(%s), COUNT(*) FROM entries '
-                       "WHERE %s AND model != '<synthetic>' GROUP BY model, provider "
-                       'ORDER BY SUM(cost) DESC' % (TOKENS, where), args)
+    rows = index.query(f'SELECT model, provider, SUM(cost), SUM({TOKENS}), COUNT(*) FROM entries '
+                       f"WHERE {where} AND model != '<synthetic>' GROUP BY model, provider "
+                       'ORDER BY SUM(cost) DESC', args)
     top = [{'model': model, 'provider': provider, 'cost': cost, 'tokens': tokens,
             'calls': calls} for model, provider, cost, tokens, calls in rows[:TOP_MODELS]]
     rest = rows[TOP_MODELS:]
@@ -460,12 +459,12 @@ def get_sessions(index, where, args, options):
         keys = [item['session'] for item in sessions]
         marks = ','.join('?' * len(keys))
         totals = {row[0]: row[1:] for row in index.query(
-            'SELECT session, SUM(cost), SUM(%s), COUNT(*) FROM entries WHERE session IN (%s) '
-            'GROUP BY session' % (TOKENS, marks), keys)}
+            f'SELECT session, SUM(cost), SUM({TOKENS}), COUNT(*) FROM entries WHERE session IN '
+            f'({marks}) GROUP BY session', keys)}
         tools = {}
         for session, category, count in index.query(
-                'SELECT session, category, COUNT(*) FROM tools WHERE session IN (%s) '
-                'GROUP BY session, category' % marks, keys):
+                f'SELECT session, category, COUNT(*) FROM tools WHERE session IN ({marks}) '
+                'GROUP BY session, category', keys):
             tools.setdefault(session, {})[category] = count
         for item in sessions:
             cost, tokens, calls = totals.get(item['session'], (0, 0, 0))

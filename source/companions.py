@@ -92,9 +92,9 @@ class QuotaWidget(wx.Frame):
             top = self.HEAD + index * self.ROW
             gc.SetFont(get_font(8), wx.Colour(theme['text']))
             gc.DrawText(limit['name'], self.PADDING, top)
-            right = '%d%%' % limit['percent']
+            right = f'{int(limit["percent"])}%'
             if limit.get('elapsed') is not None:
-                right += ' / %d%%' % limit['elapsed']
+                right += f' / {int(limit["elapsed"])}%'
             gc.DrawText(right, width - self.PADDING - gc.GetTextExtent(right)[0], top)
             bar_top = top + 16
             gc.SetPen(wx.TRANSPARENT_PEN)

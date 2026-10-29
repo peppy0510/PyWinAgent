@@ -34,8 +34,8 @@ MODIFIERS = (
 
 KEYS = {chr(code): code for code in range(ord('A'), ord('Z') + 1)}
 KEYS.update({chr(code): code for code in range(ord('0'), ord('9') + 1)})
-KEYS.update({'F%d' % number: 0x6F + number for number in range(1, 25)})
-KEYS.update({'Num%d' % number: 0x60 + number for number in range(10)})
+KEYS.update({f'F{number}': 0x6F + number for number in range(1, 25)})
+KEYS.update({f'Num{number}': 0x60 + number for number in range(10)})
 KEYS.update({'Space': 0x20, 'PageUp': 0x21, 'PageDown': 0x22, 'End': 0x23, 'Home': 0x24,
              'Insert': 0x2D, 'Delete': 0x2E, 'Pause': 0x13})
 KEY_NAMES = {code: name for name, code in KEYS.items()}

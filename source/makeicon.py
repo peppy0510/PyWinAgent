@@ -81,7 +81,7 @@ def main():
     frames[-1].save(os.path.join(path, 'icon.ico'), format='ICO',
                     sizes=[(size, size) for size in SIZES],
                     append_images=frames[:-1])
-    print('[ ICON CREATED ] [ {} ]'.format(os.path.join(path, 'icon.ico')))
+    print(f'[ ICON CREATED ] [ {os.path.join(path, "icon.ico")} ]')
 
 
 if __name__ == '__main__':
