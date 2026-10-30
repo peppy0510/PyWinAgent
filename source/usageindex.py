@@ -28,7 +28,7 @@ PROGRESS_MIN_BYTES = 8 * 1024 * 1024
 REMOTE_IDLE = 10 * 60
 
 HOME = os.path.expanduser('~')
-WSL_HOME = r'\\wsl.localhost\ubuntu-24.04\root'
+WSL_HOME = r'\\wsl.localhost\ubuntu-26.04\root'
 
 ROOTS = {
     'claude': (os.path.join(HOME, '.claude', 'projects'),

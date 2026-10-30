@@ -18,7 +18,7 @@ from usageindex import HOME
 
 
 CACHE_PATH = os.path.join(os.environ.get('APPDATA', HOME), 'PyWinAgent', 'git-stats.json')
-WSL_DISTRO = 'Ubuntu-24.04'
+WSL_DISTRO = 'Ubuntu-26.04'
 MARKER = '@@'
 GIT_JOBS = 6
 

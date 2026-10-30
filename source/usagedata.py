@@ -24,14 +24,14 @@ CLAUDE_PROFILE = os.path.join(os.path.expanduser('~'), '.claude.json')
 
 CREDENTIALS = (
     os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json'),
-    r'\\wsl.localhost\ubuntu-24.04\root\.claude\.credentials.json',
+    r'\\wsl.localhost\ubuntu-26.04\root\.claude\.credentials.json',
 )
 
 CODEX_RESETS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits'
 
 CODEX_AUTHS = (
     os.path.join(os.path.expanduser('~'), '.codex', 'auth.json'),
-    r'\\wsl.localhost\ubuntu-24.04\root\.codex\auth.json',
+    r'\\wsl.localhost\ubuntu-26.04\root\.codex\auth.json',
 )
 
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
