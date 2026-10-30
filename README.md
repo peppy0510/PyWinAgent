@@ -11,6 +11,10 @@
 * Floating usage widget.
 * Auto, dark and light themes.
 
+## Screenshot
+
+![screenshot](/assets/images/screenshot-001.png)
+
 ## How to install
 
 * Download or clone a repository, install Python packages in the requirements.pip file, then execute source/main.pyw with pythonw.exe. Python 3.x is required.
