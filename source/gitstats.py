@@ -49,7 +49,7 @@ def classify_path(path):
 def run_git(cwd, *args, timeout=60):
     if cwd.startswith('/') and os.name == 'nt':
         # git over \\wsl.localhost is tens of times slower than git inside WSL; the default
-        # distro, the one whose home the sessions were read from
+        # distro, whose home the sessions come from
         command = ['wsl.exe', '-e', 'git', '-C', cwd] + list(args)
     else:
         command = ['git', '-C', cwd] + list(args)

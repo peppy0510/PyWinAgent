@@ -32,8 +32,7 @@ LXSS_KEY = r'Software\Microsoft\Windows\CurrentVersion\Lxss'
 
 
 def get_wsl_home():
-    # the default distro's login home as Windows reaches it, whatever the distro is named;
-    # None without WSL
+    # the default distro's login home as Windows reaches it; None without WSL
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LXSS_KEY) as key:
             default = winreg.QueryValueEx(key, 'DefaultDistribution')[0]
@@ -45,7 +44,7 @@ def get_wsl_home():
                     uid = 0
     except OSError:
         return None
-    # lower, as the index's file and session keys were written; another case is new paths
+    # lower: the index keys files and sessions by these paths
     root = rf'\\wsl.localhost\{name.lower()}'
     if uid == 0:
         return root + r'\root'
