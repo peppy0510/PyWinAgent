@@ -1218,6 +1218,67 @@ class ActionCard(CardBase):
         return rect.x
 
 
+class AboutCard(ActionCard):
+
+    HEIGHT = 72
+    LOGO_HEIGHT = 32
+    LOGO_GAP = 12
+    TEXT_GAP = 5
+
+    def __init__(self, parent, theme, label, lines, caption, on_click, logo):
+        super().__init__(parent, theme, label, '', caption, on_click)
+        self.lines = lines
+        width = round(logo.GetWidth() * self.LOGO_HEIGHT / logo.GetHeight())
+        self.source = logo.Scale(width, self.LOGO_HEIGHT, wx.IMAGE_QUALITY_HIGH)
+        self.logo = self.paint_logo()
+        self.SetMinSize(wx.Size(-1, self.HEIGHT))
+
+    def set_theme(self, theme):
+        self.theme = theme
+        self.logo = self.paint_logo()
+        self.Refresh()
+
+    def paint_logo(self):
+        # the white half of the mark takes the text colour so it shows on light themes
+        image = self.source.Copy()
+        text = wx.Colour(self.theme['text'])
+        data = bytearray(image.GetData())
+        for index in range(0, len(data), 3):
+            if data[index] == 255 and data[index + 1] == 255:
+                data[index:index + 3] = bytes((text.Red(), text.Green(), text.Blue()))
+        alpha = image.GetAlpha()
+        # SetData drops the alpha channel
+        image.SetData(bytes(data))
+        image.SetAlpha(alpha)
+        return image.ConvertToBitmap()
+
+    def draw(self, gc, width, height):
+        draw_row_face(gc, self.theme, width, height, self.first, self.last)
+        logo_width, logo_height = self.logo.GetWidth(), self.logo.GetHeight()
+        gc.DrawBitmap(self.logo, self.PADDING, (height - logo_height) // 2,
+                      logo_width, logo_height)
+        left = self.PADDING + logo_width + self.LOGO_GAP
+        label_right = self.draw_control(gc, width, height) - self.LABEL_GAP
+        self.draw_lines(gc, height, left, max(0, label_right - left))
+
+    def draw_lines(self, gc, height, left, limit):
+        theme = self.theme
+        title_font, note_font = get_font(10), get_font(8)
+        title_ink, note_ink = get_ink(title_font), get_ink(note_font)
+        title_height = title_ink[1] - title_ink[0] + 1
+        note_height = note_ink[1] - note_ink[0] + 1
+        block = title_height + (self.LINE_GAP + note_height) + \
+            (self.TEXT_GAP + note_height) * (len(self.lines) - 1)
+        top = (height - block) // 2
+        gc.SetFont(title_font, wx.Colour(theme['text']))
+        gc.DrawText(self.fit_text(gc, self.label, limit), left, top - title_ink[0])
+        top += title_height + self.LINE_GAP
+        gc.SetFont(note_font, wx.Colour(theme['dim']))
+        for line in self.lines:
+            gc.DrawText(self.fit_text(gc, line, limit), left, top - note_ink[0])
+            top += note_height + self.TEXT_GAP
+
+
 class ScrollBar(Canvas):
 
     WIDTH = 4

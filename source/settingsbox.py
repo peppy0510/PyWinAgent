@@ -7,8 +7,10 @@ email: peppy0510@hotmail.com
 '''
 
 
+import subprocess
 import wx
 
+from controls import AboutCard
 from controls import ActionCard
 from controls import ChoiceCard
 from controls import LayoutCard
@@ -16,6 +18,12 @@ from controls import Panel
 from controls import ScrollArea
 from controls import SettingCard
 from controls import SliderCard
+from utilities import APP_AUTHOR
+from utilities import APP_EMAIL
+from utilities import APP_HOME
+from utilities import APP_NAME
+from utilities import APP_VERSION
+from utilities import get_asset_path
 
 AGENTS = (('claude', 'Claude', 'Count Claude Code usage'),
           ('codex', 'Codex', 'Count Codex usage'),
@@ -144,7 +152,15 @@ class SettingsBox(ScrollArea):
         self.fill_layout()
 
         panels.append(self.add_panel('data', 'Data', (self.projects, self.hidden, self.reindex)))
+        about = AboutCard(self.content, self.theme, f'{APP_NAME} {APP_VERSION}',
+                          (APP_AUTHOR, APP_EMAIL), 'GitHub', self.on_home,
+                          wx.Image(get_asset_path('icon', 'muteklab.png')))
+        panels.append(self.add_panel('about', 'About', (about,)))
         self.set_panels(panels)
+
+    def on_home(self):
+        # explorer hands the link to the shell, so the browser does not inherit elevation
+        subprocess.Popen(['explorer', APP_HOME])
 
     def on_fold(self):
         self.relayout_panels()

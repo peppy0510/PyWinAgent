@@ -17,6 +17,10 @@ from ctypes import wintypes
 
 
 APP_NAME = 'PyWinAgent'
+APP_VERSION = '0.1.0'
+APP_AUTHOR = 'Taehong Kim'
+APP_EMAIL = 'peppy0510@hotmail.com'
+APP_HOME = 'https://github.com/peppy0510/PyWinAgent'
 
 CONTROL_HEIGHT = 28
 ROUND_SIZE = 46
