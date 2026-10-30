@@ -17,22 +17,20 @@ import urllib.request
 
 from datetime import datetime
 
+from usageindex import in_wsl
+
 
 USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 CLAUDE_PROFILE = os.path.join(os.path.expanduser('~'), '.claude.json')
 
-CREDENTIALS = (
-    os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json'),
-    r'\\wsl.localhost\ubuntu-26.04\root\.claude\.credentials.json',
-)
+CREDENTIALS = (os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json'),
+               *in_wsl('.claude', '.credentials.json'))
 
 CODEX_RESETS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits'
 
-CODEX_AUTHS = (
-    os.path.join(os.path.expanduser('~'), '.codex', 'auth.json'),
-    r'\\wsl.localhost\ubuntu-26.04\root\.codex\auth.json',
-)
+CODEX_AUTHS = (os.path.join(os.path.expanduser('~'), '.codex', 'auth.json'),
+               *in_wsl('.codex', 'auth.json'))
 
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
 
@@ -75,7 +73,7 @@ def get_plan_name():
     name = (kind or 'claude').replace('_', ' ').title()
     found = re.search(r'(\d+)x', tier)
     if found and kind == 'max':
-        name += ' %sx' % found.group(1)
+        name += f' {found.group(1)}x'
     return name
 
 
@@ -152,7 +150,7 @@ def get_limits():
         name = LIMIT_NAMES.get(item.get('kind'))
         if name is None:
             scope = (item.get('scope') or {}).get('model') or {}
-            name = 'Weekly · %s' % (scope.get('display_name') or 'scoped')
+            name = f'Weekly · {scope.get("display_name") or "scoped"}'
         window = SESSION_WINDOW if item.get('kind') == 'session' else WEEKLY_WINDOW
         limits.append({'name': name, 'percent': percent,
                        'severity': item.get('severity', 'normal'),
@@ -216,13 +214,14 @@ def format_remaining(seconds):
         return ''
     hours, rest = divmod(int(seconds), 3600)
     if hours >= 24:
-        return 'resets in %dd %dh' % divmod(hours, 24)
+        days, hours = divmod(hours, 24)
+        return f'resets in {days}d {hours}h'
     if hours:
-        return 'resets in %dh %dm' % (hours, rest // 60)
-    return 'resets in %dm' % max(1, rest // 60)
+        return f'resets in {hours}h {rest // 60}m'
+    return f'resets in {max(1, rest // 60)}m'
 
 
 def get_window_name(minutes):
     if minutes and minutes % 1440 == 0:
-        return 'Weekly' if minutes == 10080 else '%d-day' % (minutes // 1440)
-    return '%d-hour' % round((minutes or 0) / 60.0)
+        return 'Weekly' if minutes == 10080 else f'{int(minutes // 1440)}-day'
+    return f'{round((minutes or 0) / 60.0)}-hour'

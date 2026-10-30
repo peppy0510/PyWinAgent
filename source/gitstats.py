@@ -18,7 +18,6 @@ from usageindex import HOME
 
 
 CACHE_PATH = os.path.join(os.environ.get('APPDATA', HOME), 'PyWinAgent', 'git-stats.json')
-WSL_DISTRO = 'Ubuntu-26.04'
 MARKER = '@@'
 GIT_JOBS = 6
 
@@ -49,8 +48,9 @@ def classify_path(path):
 
 def run_git(cwd, *args, timeout=60):
     if cwd.startswith('/') and os.name == 'nt':
-        # git over \\wsl.localhost is tens of times slower than git inside WSL
-        command = ['wsl.exe', '-d', WSL_DISTRO, '-e', 'git', '-C', cwd] + list(args)
+        # git over \\wsl.localhost is tens of times slower than git inside WSL; the default
+        # distro, the one whose home the sessions were read from
+        command = ['wsl.exe', '-e', 'git', '-C', cwd] + list(args)
     else:
         command = ['git', '-C', cwd] + list(args)
     flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0

@@ -14,6 +14,7 @@ import re
 import sqlite3
 import threading
 import time
+import winreg
 
 from datetime import datetime
 from datetime import timezone
@@ -27,16 +28,50 @@ PROGRESS_MIN_BYTES = 8 * 1024 * 1024
 # stale while a writer holds the file, so only idle WSL files skip the stat
 REMOTE_IDLE = 10 * 60
 
+LXSS_KEY = r'Software\Microsoft\Windows\CurrentVersion\Lxss'
+
+
+def get_wsl_home():
+    # the default distro's login home as Windows reaches it, whatever the distro is named;
+    # None without WSL
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LXSS_KEY) as key:
+            default = winreg.QueryValueEx(key, 'DefaultDistribution')[0]
+            with winreg.OpenKey(key, default) as distro:
+                name = winreg.QueryValueEx(distro, 'DistributionName')[0]
+                try:
+                    uid = winreg.QueryValueEx(distro, 'DefaultUid')[0]
+                except OSError:
+                    uid = 0
+    except OSError:
+        return None
+    # lower, as the index's file and session keys were written; another case is new paths
+    root = rf'\\wsl.localhost\{name.lower()}'
+    if uid == 0:
+        return root + r'\root'
+    try:
+        with open(root + r'\etc\passwd', encoding='utf-8') as file:
+            for line in file:
+                fields = line.split(':')
+                if len(fields) > 5 and fields[2] == str(uid):
+                    return root + fields[5].replace('/', '\\')
+    except OSError:
+        pass
+    return None
+
+
+def in_wsl(*parts):
+    return (os.path.join(WSL_HOME, *parts),) if WSL_HOME else ()
+
+
 HOME = os.path.expanduser('~')
-WSL_HOME = r'\\wsl.localhost\ubuntu-26.04\root'
+WSL_HOME = get_wsl_home()
 
 ROOTS = {
-    'claude': (os.path.join(HOME, '.claude', 'projects'),
-               os.path.join(WSL_HOME, '.claude', 'projects')),
+    'claude': (os.path.join(HOME, '.claude', 'projects'), *in_wsl('.claude', 'projects')),
     'codex': (os.path.join(HOME, '.codex', 'sessions'),
               os.path.join(HOME, '.codex', 'archived_sessions'),
-              os.path.join(WSL_HOME, '.codex', 'sessions'),
-              os.path.join(WSL_HOME, '.codex', 'archived_sessions')),
+              *in_wsl('.codex', 'sessions'), *in_wsl('.codex', 'archived_sessions')),
 }
 
 ANTIGRAVITY_DBS = tuple(os.path.join(HOME, '.gemini', name, 'conversation_summaries.db')
@@ -436,7 +471,7 @@ class UsageIndex:
         row = db.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
         if row is None or row[0] != str(SCHEMA_VERSION):
             for table in ('files', 'entries', 'tools', 'sessions'):
-                db.execute('DELETE FROM %s' % table)
+                db.execute(f'DELETE FROM {table}')
             db.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(SCHEMA_VERSION),))
             db.commit()
         if db.execute("SELECT 1 FROM meta WHERE key = 'limit_history'").fetchone() is None:
@@ -503,7 +538,7 @@ class UsageIndex:
             state = json.loads(previous[3]) if previous and previous[3] else {}
             if offset > stat.st_size:
                 for table in ('entries', 'tools'):
-                    db.execute('DELETE FROM %s WHERE file = ?' % table, (path,))
+                    db.execute(f'DELETE FROM {table} WHERE file = ?', (path,))
                 offset = 0
                 state = {}
             done += self.read_file(db, provider, path, offset, state, stat)
@@ -591,7 +626,7 @@ def read_antigravity():
             continue
         try:
             # read-only so the app's live database is never locked
-            connection = sqlite3.connect('file:%s?mode=ro' % path, uri=True, timeout=2)
+            connection = sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=2)
             try:
                 found = connection.execute(
                     'SELECT conversation_id, last_modified_time, step_count, workspace_uris '
