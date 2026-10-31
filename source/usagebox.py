@@ -1156,7 +1156,10 @@ class UsageBox(ScrollArea):
             right -= 8 + p.text_on(f'{int(limit["elapsed"])}% elapsed', right - 8, base, NOTE,
                                    'dim', align='right')
         name_width = p.text_on(name, x, base, BODY)
-        when = (limit.get('when') or '') + (' · ' + clock(limit['reset_at'])
+        cap = None
+        if limit.get('cap') is not None:
+            cap = f'{int(limit["of_weekly"])}% of weekly · cap {int(limit["cap"])}%'
+        when = (cap + ' · ' if cap else '') + (limit.get('when') or '') + (' · ' + clock(limit['reset_at'])
                                             if limit.get('reset_at') else '')
         if stale:
             when += ' · cached'

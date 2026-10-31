@@ -34,6 +34,9 @@ CODEX_AUTHS = (os.path.join(os.path.expanduser('~'), '.codex', 'auth.json'),
 
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
 
+# 2026-10-30: Max 5x became Max and Max 20x Ultra; the tokens still carry the old tier names
+PLAN_NAMES = {('max', '5'): 'Max', ('max', '20'): 'Ultra'}
+
 SESSION_WINDOW = 5 * 3600
 WEEKLY_WINDOW = 7 * 86400
 
@@ -70,8 +73,10 @@ def get_plan_name():
     if not plan:
         return None
     kind, tier = plan
-    name = (kind or 'claude').replace('_', ' ').title()
     found = re.search(r'(\d+)x', tier)
+    if found and (kind, found.group(1)) in PLAN_NAMES:
+        return PLAN_NAMES[kind, found.group(1)]
+    name = (kind or 'claude').replace('_', ' ').title()
     if found and kind == 'max':
         name += f' {found.group(1)}x'
     return name
@@ -141,20 +146,30 @@ def get_limits():
         return None
     last_error = None
 
+    # a model-scoped weekly limit may only take its share of the weekly one
+    shares = {share.get('limit_index'): share for share in body.get('weekly_scoped_shares') or ()}
+    # verified Ultra accounts have no 5-hour limit, though the API still reports an idle one
+    ultra = get_plan_name() == 'Ultra'
     limits = []
-    for item in body.get('limits', []):
+    for order, item in enumerate(body.get('limits', [])):
         percent = item.get('percent', 0)
         resets = item.get('resets_at')
         if not resets and not percent:
+            continue
+        if ultra and item.get('kind') == 'session' and not item.get('is_active'):
             continue
         name = LIMIT_NAMES.get(item.get('kind'))
         if name is None:
             scope = (item.get('scope') or {}).get('model') or {}
             name = f'Weekly · {scope.get("display_name") or "scoped"}'
         window = SESSION_WINDOW if item.get('kind') == 'session' else WEEKLY_WINDOW
-        limits.append({'name': name, 'percent': percent,
-                       'severity': item.get('severity', 'normal'),
-                       'remains': get_reset_seconds(resets), 'window': window})
+        limit = {'name': name, 'percent': percent, 'severity': item.get('severity', 'normal'),
+                 'remains': get_reset_seconds(resets), 'window': window}
+        share = shares.get(order)
+        if share and share.get('allowance_percent_of_weekly') is not None:
+            limit['cap'] = share['allowance_percent_of_weekly']
+            limit['of_weekly'] = share.get('used_percent_of_weekly') or 0
+        limits.append(limit)
     return limits
 
 
