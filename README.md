@@ -5,7 +5,7 @@
 * An estimate of how much of each plan limit this device used, and how much went elsewhere.
 * Costs in USD, KRW or JPY, at exchange rates you set. Projects can be left out of the numbers or hidden from the session list.
 * Local text-to-speech with the Supertonic model on the CPU, with voice preview and settings.
-* Reads each finished Claude Code reply aloud through a hook installed from the TTS page, for Claude Code on Windows and in the default WSL distro.
+* Reads each finished Claude Code reply aloud through a hook installed from the TTS page, for Claude Code on Windows and for every WSL distro and user that has run it.
 * Read-aloud hotkey (Ctrl+Alt+Shift+9 by default, changeable) reads the selected text in any app.
 * Tray icon, with an option to close to the tray.
 * Floating usage widget.

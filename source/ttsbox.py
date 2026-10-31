@@ -224,8 +224,20 @@ class TtsBox(ScrollArea):
         return values
 
     def update_hook(self):
-        state = ttssetup.get_hook_state()
+        # finding the WSL homes launches wsl.exe, so it runs off the UI thread
+        self.hook_busy = True
+        threading.Thread(target=lambda: call_painted(
+            self, self.show_hook, ttssetup.get_hook_state()), daemon=True).start()
+
+    def show_hook(self, state, error=None):
+        if not self:
+            return
+        self.hook_busy = False
+        self.hook_state = state
         self.hook.set_caption('Remove' if state == 'installed' else 'Install')
+        if error:
+            self.hook.set_description(f'Could not change the hook: {error}')
+            return
         self.hook.set_description({
             'installed': 'Claude Code calls this app when a reply ends',
             'partial': 'Missing in Claude Code on Windows or WSL · install to add it',
@@ -234,15 +246,23 @@ class TtsBox(ScrollArea):
         }[state])
 
     def on_hook(self):
-        try:
-            if ttssetup.get_hook_state() == 'installed':
-                ttssetup.remove_hooks()
-            else:
-                ttssetup.install_hooks()
-        except Exception as error:
-            self.hook.set_description(f'Could not change the hook: {error}')
+        if self.hook_busy:
             return
-        self.update_hook()
+        self.hook_busy = True
+        remove = self.hook_state == 'installed'
+        self.hook.set_description('Removing the hook' if remove else 'Installing the hook')
+
+        def work():
+            error = None
+            try:
+                if remove:
+                    ttssetup.remove_hooks()
+                else:
+                    ttssetup.install_hooks()
+            except Exception as caught:
+                error = caught
+            call_painted(self, self.show_hook, ttssetup.get_hook_state(), error)
+        threading.Thread(target=work, daemon=True).start()
 
     def apply_hotkey(self, toggled=False):
         wanted = self.cards['readaloud'].GetValue()

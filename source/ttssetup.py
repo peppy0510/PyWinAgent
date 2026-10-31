@@ -6,8 +6,8 @@ author: Taehong Kim
 email: peppy0510@hotmail.com
 
 description:
-Installs the read-aloud hooks into Claude Code, on Windows and in the default WSL
-distro, and takes the read-aloud hotkey
+Installs the read-aloud hooks into Claude Code, on Windows and for every WSL user
+who has run it, and takes the read-aloud hotkey
 over from the agent toolkit. Whatever the toolkit had registered is kept aside
 and put back when the feature is turned off.
 '''
@@ -19,16 +19,15 @@ import shlex
 import shutil
 import subprocess
 import sys
+import winreg
 
 import psutil
 
 import ttsconfig
 
-from usageindex import in_wsl
-
 
 CLAUDE_SETTINGS = os.path.join(os.path.expanduser('~'), '.claude', 'settings.json')
-WSL_SETTINGS = in_wsl('.claude', 'settings.json')
+LXSS_KEY = r'Software\Microsoft\Windows\CurrentVersion\Lxss'
 BACKUP_DIR = os.path.join(ttsconfig.APPDATA, 'PyWinAgent', 'legacy')
 HOOK_BACKUP = os.path.join(BACKUP_DIR, 'claude-hooks.json')
 HOOK_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ttshook.py')
@@ -67,10 +66,57 @@ def get_hook(path, argument):
             'timeout': HOOK_TIMEOUT, 'command': get_wsl_command(argument)}
 
 
-def get_targets():
+def get_running_distros():
+    try:
+        result = subprocess.run(['wsl.exe', '--list', '--running', '--quiet'],
+                                capture_output=True, timeout=5,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode:
+        return set()
+    # UTF-16 unless WSL_UTF8 is set
+    output = result.stdout
+    text = output.decode('utf-16-le' if b'\0' in output else 'utf-8', 'replace')
+    return {line.strip().lower() for line in text.splitlines() if line.strip()}
+
+
+def list_distros(every):
+    # reaching a stopped distro boots it, so only installing visits every one; a stopped
+    # distro is not running Claude Code, so checking the running ones is enough
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LXSS_KEY) as key:
+            names = []
+            for index in range(winreg.QueryInfoKey(key)[0]):
+                with winreg.OpenKey(key, winreg.EnumKey(key, index)) as distro:
+                    names.append(winreg.QueryValueEx(distro, 'DistributionName')[0])
+    except OSError:
+        return []
+    if every:
+        return names
+    running = get_running_distros()
+    return [name for name in names if name.lower() in running]
+
+
+def get_homes(distro):
+    root = rf'\\wsl.localhost\{distro}'
+    homes = [os.path.join(root, 'root')]
+    try:
+        homes += [os.path.join(root, 'home', name)
+                  for name in os.listdir(os.path.join(root, 'home'))]
+    except OSError:
+        pass
+    return homes
+
+
+def get_targets(every=False):
     # only where Claude Code has been run, so WSL without it is left alone
-    return [CLAUDE_SETTINGS] + [path for path in WSL_SETTINGS
-                                if os.path.isdir(os.path.dirname(path))]
+    targets = [CLAUDE_SETTINGS]
+    for distro in list_distros(every):
+        for home in get_homes(distro):
+            if os.path.isdir(os.path.join(home, '.claude')):
+                targets.append(os.path.join(home, '.claude', 'settings.json'))
+    return targets
 
 
 def read_settings(path=CLAUDE_SETTINGS):
@@ -114,13 +160,17 @@ def take_hooks(groups, keep):
 
 
 def has_ours(path):
-    hooks = read_settings(path).get('hooks') or {}
+    # None for a file this user cannot read, which no install could change either
+    try:
+        hooks = read_settings(path).get('hooks') or {}
+    except (OSError, ValueError):
+        return None
     return any(is_ours(hook) for groups in hooks.values()
                for group in groups for hook in group.get('hooks') or [])
 
 
 def get_hook_state():
-    installed = [has_ours(path) for path in get_targets()]
+    installed = [found for found in map(has_ours, get_targets()) if found is not None]
     if all(installed):
         return 'installed'
     if any(installed):
@@ -131,49 +181,66 @@ def get_hook_state():
     return 'toolkit' if toolkit else 'missing'
 
 
-def install_hooks():
-    for path in get_targets():
-        settings = read_settings(path)
-        hooks = settings.setdefault('hooks', {})
-        backup = {}
-        for event, argument in HOOK_EVENTS.items():
-            groups = hooks.get(event) or []
-            groups, _ = take_hooks(groups, lambda hook: not is_ours(hook))
-            if path == CLAUDE_SETTINGS:
-                groups, taken = take_hooks(groups,
-                                           lambda hook: not is_toolkit(hook, argument))
-                if taken:
-                    backup[event] = taken
-            groups.append({'matcher': '', 'hooks': [get_hook(path, argument)]})
+def install_into(path):
+    settings = read_settings(path)
+    hooks = settings.setdefault('hooks', {})
+    backup = {}
+    for event, argument in HOOK_EVENTS.items():
+        groups = hooks.get(event) or []
+        groups, _ = take_hooks(groups, lambda hook: not is_ours(hook))
+        if path == CLAUDE_SETTINGS:
+            groups, taken = take_hooks(groups, lambda hook: not is_toolkit(hook, argument))
+            if taken:
+                backup[event] = taken
+        groups.append({'matcher': '', 'hooks': [get_hook(path, argument)]})
+        hooks[event] = groups
+    if backup and not os.path.exists(HOOK_BACKUP):
+        write_json(HOOK_BACKUP, backup)
+    write_json(path, settings)
+
+
+def remove_from(path):
+    if not os.path.exists(path):
+        return
+    settings = read_settings(path)
+    hooks = settings.get('hooks') or {}
+    for event in list(hooks):
+        groups, _ = take_hooks(hooks[event], lambda hook: not is_ours(hook))
+        if groups:
             hooks[event] = groups
-        if backup and not os.path.exists(HOOK_BACKUP):
-            write_json(HOOK_BACKUP, backup)
-        write_json(path, settings)
+        else:
+            del hooks[event]
+    if path == CLAUDE_SETTINGS:
+        try:
+            with open(HOOK_BACKUP, encoding='utf-8') as file:
+                backup = json.load(file)
+        except (OSError, ValueError):
+            backup = {}
+        for event, taken in backup.items():
+            hooks.setdefault(event, []).append({'matcher': '', 'hooks': taken})
+    write_json(path, settings)
+    if path == CLAUDE_SETTINGS and os.path.exists(HOOK_BACKUP):
+        os.remove(HOOK_BACKUP)
+
+
+def apply_everywhere(action):
+    # one unwritable home must not keep the others from changing
+    failed = []
+    for path in get_targets(every=True):
+        try:
+            action(path)
+        except (OSError, ValueError):
+            failed.append(path)
+    if failed:
+        raise OSError('not written: ' + ', '.join(failed))
+
+
+def install_hooks():
+    apply_everywhere(install_into)
 
 
 def remove_hooks():
-    for path in get_targets():
-        if not os.path.exists(path):
-            continue
-        settings = read_settings(path)
-        hooks = settings.get('hooks') or {}
-        for event in list(hooks):
-            groups, _ = take_hooks(hooks[event], lambda hook: not is_ours(hook))
-            if groups:
-                hooks[event] = groups
-            else:
-                del hooks[event]
-        if path == CLAUDE_SETTINGS:
-            try:
-                with open(HOOK_BACKUP, encoding='utf-8') as file:
-                    backup = json.load(file)
-            except (OSError, ValueError):
-                backup = {}
-            for event, taken in backup.items():
-                hooks.setdefault(event, []).append({'matcher': '', 'hooks': taken})
-        write_json(path, settings)
-    if os.path.exists(HOOK_BACKUP):
-        os.remove(HOOK_BACKUP)
+    apply_everywhere(remove_from)
 
 
 def find_listeners():
