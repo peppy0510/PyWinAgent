@@ -298,6 +298,11 @@ class MainFrame(wx.Frame):
         if page is not self.usagebox:
             self.usagebox.tick()
 
+        visible = (not self.settingsbox.autohide.GetValue() or
+                   page is self.settingsbox or
+                   self.sidemenu.is_open() or
+                   self.GetScreenRect().Contains(wx.GetMousePosition()))
+        self.titlebar.set_visible(visible)
         self.titlebar.set_menu_open(self.sidemenu.is_open())
         paint_now(self)
         if self.widget is not None:

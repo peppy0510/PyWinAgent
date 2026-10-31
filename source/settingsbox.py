@@ -61,6 +61,7 @@ class SettingsBox(ScrollArea):
         self.tray = toggle('Tray icon', 'Show an icon in the notification area')
         self.close_to_tray = toggle('Close to tray',
                                     'Closing hides the window so the hotkey keeps working')
+        self.autohide = toggle('Auto hide menu', 'Show the header only on hover')
         self.theme_choice = ChoiceCard(board, theme, 'Theme', 'Auto follows Windows',
                                        THEMES, on_change)
 
@@ -106,6 +107,7 @@ class SettingsBox(ScrollArea):
         self.ontop.SetValue(settings.get('on_top', False))
         self.tray.SetValue(settings.get('tray_icon', True))
         self.close_to_tray.SetValue(settings.get('close_to_tray', False))
+        self.autohide.SetValue(settings.get('auto_hide_menu', False))
         self.theme_choice.SetValue(settings.get('theme', 'dark'))
         self.wide.SetValue(settings.get('wide_layout', True))
         enabled = settings.get('agents', {})
@@ -137,7 +139,7 @@ class SettingsBox(ScrollArea):
 
     def build(self):
         panels = [self.add_panel(key, title, cards) for key, title, cards in (
-            ('window', 'Window', (self.ontop, self.tray, self.close_to_tray)),
+            ('window', 'Window', (self.ontop, self.tray, self.close_to_tray, self.autohide)),
             ('appearance', 'Appearance', (self.theme_choice, self.wide)),
             ('agents', 'Agents', tuple(self.agents.values())),
             ('widget', 'Widget', (self.widget,)),
@@ -292,6 +294,7 @@ class SettingsBox(ScrollArea):
             'on_top': self.ontop.GetValue(),
             'tray_icon': self.tray.GetValue(),
             'close_to_tray': self.close_to_tray.GetValue(),
+            'auto_hide_menu': self.autohide.GetValue(),
             'theme': self.theme_choice.GetValue(),
             'wide_layout': self.wide.GetValue(),
             'agents': self.get_agents(),
