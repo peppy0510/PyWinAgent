@@ -7,6 +7,7 @@ email: peppy0510@hotmail.com
 '''
 
 
+import psutil
 import threading
 import wx
 
@@ -27,6 +28,11 @@ SAVE_DELAY = 500
 
 HOTKEY_HINT = 'Click and press new keys to change'
 CAPTURE_CAPTION = 'Press keys'
+
+PREVIEW_HINT = 'Save and read a sample line aloud'
+PREVIEW_STATES = {'loading': 'Loading the voice', 'playing': 'Playing the sample'}
+# ticks per dot of the trailing ellipsis while a preview runs
+DOT_TICKS = 3
 
 SLIDERS = {
     'chunk_min_chars': ('Sentence group', 'Short sentences are joined up to this length'),
@@ -82,9 +88,12 @@ class TtsBox(ScrollArea):
         self.online = True if ttsconfig.has_model() else None
         self.grid = ChipGrid(board, theme, voices, self.on_change, self.fit)
         self.grid.SetValue(self.values.get('voice', voices[0]))
-        self.preview = ActionCard(board, theme, 'Preview',
-                                  'Save and read a sample line aloud',
+        self.preview = ActionCard(board, theme, 'Preview', PREVIEW_HINT,
                                   'Play', self.on_preview)
+        self.preview.set_captions('Stop')
+        self.previewing = None
+        self.preview_state = None
+        self.preview_ticks = 0
 
         self.hook = ActionCard(board, theme, 'Claude Code hook', '', 'Install', self.on_hook)
         self.hook.set_captions('Install', 'Remove')
@@ -265,8 +274,58 @@ class TtsBox(ScrollArea):
         return ttsconfig.save(self.values, self.raw)
 
     def on_preview(self):
+        if self.previewing is not None:
+            self.stop_preview()
+            return
         self.flush()
-        ttsconfig.preview(self.grid.GetValue())
+        self.previewing = ttsconfig.preview(self.grid.GetValue())
+        self.preview_ticks = 0
+        self.update_preview()
+
+    def stop_preview(self):
+        try:
+            process = psutil.Process(self.previewing.pid)
+            for child in process.children(recursive=True):
+                child.kill()
+            process.kill()
+        except psutil.Error:
+            pass
+        self.previewing = None
+        self.update_preview()
+
+    def get_preview_state(self):
+        if self.previewing is None or self.previewing.poll() is not None:
+            self.previewing = None
+            return None
+        try:
+            with open(ttsconfig.PID_PATH, encoding='utf-8') as file:
+                owner = int(file.read().split()[0])
+        except (OSError, ValueError, IndexError):
+            return 'loading'
+        # the venv pythonw is a launcher, so the reading itself runs in its child
+        pid = self.previewing.pid
+        try:
+            if owner == pid or psutil.Process(owner).ppid() == pid:
+                return 'playing'
+        except psutil.Error:
+            pass
+        return 'loading'
+
+    def update_preview(self):
+        state = self.get_preview_state()
+        # the reading drops its pid file a moment before it exits
+        if state == 'loading' and self.preview_state == 'playing':
+            state = 'playing'
+        self.preview_state = state
+        if state is None:
+            self.preview.set_caption('Play')
+            self.preview.set_description(PREVIEW_HINT)
+            return
+        dots = '.' * (self.preview_ticks // DOT_TICKS % 3 + 1)
+        self.preview.set_caption('Stop')
+        self.preview.set_description(PREVIEW_STATES[state] + dots)
 
     def tick(self):
-        pass
+        if self.previewing is not None:
+            self.preview_ticks += 1
+            self.update_preview()

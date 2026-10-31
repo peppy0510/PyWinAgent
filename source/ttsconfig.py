@@ -26,6 +26,8 @@ MODEL_DIR = os.environ.get('PYWINAGENT_TTS_MODEL',
 VOICES_DIR = os.environ.get('PYWINAGENT_TTS_VOICES',
                             os.path.join(APPDATA, 'PyWinAgent', 'voices'))
 SPEAK_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ttsspeak.py')
+TEMP_DIR = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'PyWinAgent', 'tts')
+PID_PATH = os.path.join(TEMP_DIR, 'player.pid')
 
 ONNX_FILES = ('duration_predictor.onnx', 'text_encoder.onnx',
               'vector_estimator.onnx', 'vocoder.onnx')

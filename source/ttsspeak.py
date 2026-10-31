@@ -33,8 +33,8 @@ import ttsconfig  # noqa: E402
 import ttsengine  # noqa: E402
 
 
-TEMP_DIR = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'PyWinAgent', 'tts')
-PID_PATH = os.path.join(TEMP_DIR, 'player.pid')
+TEMP_DIR = ttsconfig.TEMP_DIR
+PID_PATH = ttsconfig.PID_PATH
 MUTEX_NAME = 'Local\\PyWinAgentTtsPlayer'
 
 DEBUG = bool(os.environ.get('PYWINAGENT_TTS_DEBUG'))
