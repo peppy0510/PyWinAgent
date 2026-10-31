@@ -31,7 +31,7 @@ CAPTURE_CAPTION = 'Press keys'
 
 PREVIEW_HINT = 'Save and read a sample line aloud'
 PREVIEW_STATES = {'loading': 'Loading the voice', 'playing': 'Playing the sample'}
-# ticks per dot of the trailing ellipsis while a preview runs
+# ticks each running dot stays lit while a preview runs
 DOT_TICKS = 3
 
 SLIDERS = {
@@ -73,6 +73,35 @@ GROUPS = (
 )
 
 
+class PreviewCard(ActionCard):
+    # an ellipsis in the text made GDI+ respace the whole line every step, so the
+    # running beat is drawn as dots beside the button
+
+    DOT = 5
+    DOT_GAP = 4
+    DOTS_GAP = 10
+
+    phase = None
+
+    def set_phase(self, phase):
+        if phase != self.phase:
+            self.phase = phase
+            self.Refresh()
+
+    def draw_control(self, gc, width, height):
+        left = super().draw_control(gc, width, height)
+        if self.phase is None:
+            return left
+        left -= self.DOTS_GAP + self.DOT * 3 + self.DOT_GAP * 2
+        top = (height - self.DOT) / 2
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        for index in range(3):
+            colour = self.theme['accent'] if index == self.phase else self.theme['faint']
+            gc.SetBrush(wx.Brush(wx.Colour(colour)))
+            gc.DrawEllipse(left + (self.DOT + self.DOT_GAP) * index, top, self.DOT, self.DOT)
+        return left
+
+
 class TtsBox(ScrollArea):
 
     def __init__(self, parent, theme, folds=None, on_fold=None):
@@ -88,8 +117,8 @@ class TtsBox(ScrollArea):
         self.online = True if ttsconfig.has_model() else None
         self.grid = ChipGrid(board, theme, voices, self.on_change, self.fit)
         self.grid.SetValue(self.values.get('voice', voices[0]))
-        self.preview = ActionCard(board, theme, 'Preview', PREVIEW_HINT,
-                                  'Play', self.on_preview)
+        self.preview = PreviewCard(board, theme, 'Preview', PREVIEW_HINT,
+                                   'Play', self.on_preview)
         self.preview.set_captions('Stop')
         self.previewing = None
         self.preview_state = None
@@ -320,10 +349,11 @@ class TtsBox(ScrollArea):
         if state is None:
             self.preview.set_caption('Play')
             self.preview.set_description(PREVIEW_HINT)
+            self.preview.set_phase(None)
             return
-        dots = '.' * (self.preview_ticks // DOT_TICKS % 3 + 1)
         self.preview.set_caption('Stop')
-        self.preview.set_description(PREVIEW_STATES[state] + dots)
+        self.preview.set_description(PREVIEW_STATES[state])
+        self.preview.set_phase(self.preview_ticks // DOT_TICKS % 3)
 
     def tick(self):
         if self.previewing is not None:
