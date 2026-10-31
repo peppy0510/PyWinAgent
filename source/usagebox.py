@@ -26,11 +26,13 @@ from controls import ScrollArea
 from controls import draw_button
 from controls import draw_row_face
 from controls import get_button_width
+from controls import get_chip_width
 from hovertip import hide_hover_tip
 from hovertip import show_hover_tip
 from utilities import BAND_INSET
 from utilities import BUTTON_GAP
 from utilities import BUTTON_HEIGHT
+from utilities import CHIP_HEIGHT
 from utilities import HEADER_BAND
 from utilities import PANEL_GAP
 from utilities import PANEL_MARGIN
@@ -426,11 +428,10 @@ class Painter:
             return 'down'
         return 'hover' if body.hover == key else 'plain'
 
-    def button(self, x, y, label, key, action, lit=False):
-        width = get_button_width(label)
-        rect = wx.Rect(int(x), int(y), width, BUTTON_HEIGHT)
-        state = 'lit' if lit else self.state(key)
-        draw_button(self.gc, self.theme, rect, label, state)
+    def chip(self, x, y, label, key, action, lit=False):
+        width = get_chip_width(label)
+        rect = wx.Rect(int(x), int(y), width, CHIP_HEIGHT)
+        draw_button(self.gc, self.theme, rect, label, 'lit' if lit else self.state(key), chip=True)
         self.zone(rect.x, rect.y, rect.width, rect.height, key, None if lit else action)
         return width
 
@@ -639,9 +640,14 @@ class BandHeader(PanelHeader):
         right = self.GetClientSize()[0] - BAND_INSET
         cells = []
         for key, label in reversed(items):
-            width = get_button_width(label)
+            if key == 'button':
+                width = get_button_width(label)
+                rect = wx.Rect(right - width, BAND_INSET, width, BUTTON_HEIGHT)
+            else:
+                width = get_chip_width(label)
+                rect = wx.Rect(right - width, (HEADER_BAND - CHIP_HEIGHT) // 2, width, CHIP_HEIGHT)
             right -= width
-            cells.insert(0, (key, label, wx.Rect(right, BAND_INSET, width, BUTTON_HEIGHT)))
+            cells.insert(0, (key, label, rect))
             right -= BUTTON_GAP
         return cells
 
@@ -727,7 +733,8 @@ class BandHeader(PanelHeader):
                 draw_button(gc, face, rect, label, self.get_state(key) if self.enabled else 'plain')
             else:
                 lit = self.choices[key][0] == self.value
-                draw_button(gc, theme, rect, label, 'lit' if lit else self.get_state(key))
+                draw_button(gc, theme, rect, label, 'lit' if lit else self.get_state(key),
+                            chip=True)
 
         font = get_font(self.TITLE_SIZE, True)
         left = self.get_title_left()
@@ -1414,9 +1421,9 @@ class UsageBox(ScrollArea):
         cells = []
         for value, label in CHOICES[name]:
             def draw(left, top, value=value, label=label):
-                p.button(left, top, label, f'seg:{name}:{value}',
-                         lambda: self.set_view(name, value), lit=self.view[name] == value)
-            cells.append((get_button_width(label), draw))
+                p.chip(left, top, label, f'seg:{name}:{value}',
+                       lambda: self.set_view(name, value), lit=self.view[name] == value)
+            cells.append((get_chip_width(label), draw))
         if split:
             return cells
         total = sum(cell[0] for cell in cells) + BUTTON_GAP * (len(cells) - 1)
@@ -1431,7 +1438,7 @@ class UsageBox(ScrollArea):
         text = text.upper()
         width = int(math.ceil(p.spaced_width(text, TINY, False, 1)))
         return [(width, lambda left, top: p.spaced(text, left, top, TINY, 'dim', False, 1,
-                                                   line=BUTTON_HEIGHT))]
+                                                   line=CHIP_HEIGHT))]
 
     def get_buckets(self, data):
         grain = self.view['grain']
@@ -1467,7 +1474,7 @@ class UsageBox(ScrollArea):
         y = PAD
         items = (self.label_item(p, 'Metric') + self.seg_items(p, 'metric') +
                  self.label_item(p, 'Range') + self.seg_items(p, 'grain'))
-        y = flow(items, PAD, y, inner, 8, BUTTON_GAP, BUTTON_HEIGHT) + PAD
+        y = flow(items, PAD, y, inner, 8, BUTTON_GAP, CHIP_HEIGHT) + PAD
         x, area = self.get_chart_area(width)
         if data is None:
             p.fill('grid', x, y, area * 0.4, 9, PANEL_RADIUS)
@@ -1717,7 +1724,7 @@ class UsageBox(ScrollArea):
     def draw_activity(self, p, width):
         data = self.data
         y = flow(self.seg_items(p, 'activity', split=True), PAD, PAD, width - PAD * 2,
-                 BUTTON_GAP, BUTTON_GAP, BUTTON_HEIGHT) + PAD
+                 BUTTON_GAP, BUTTON_GAP, CHIP_HEIGHT) + PAD
         x, area = self.get_chart_area(width)
         if data is None:
             p.fill('grid', x, y, area, 110, PANEL_RADIUS)

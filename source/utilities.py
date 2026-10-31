@@ -38,6 +38,10 @@ BUTTON_PAD = 11
 BUTTON_GAP = 4
 BUTTON_FONT = 8.5
 BAND_INSET = (HEADER_BAND - BUTTON_HEIGHT) // 2
+# choice chips: 7.5 pt is a whole 10 px, and its 7 px capitals sit 5 px from either edge
+CHIP_HEIGHT = 17
+CHIP_PAD = 7
+CHIP_FONT = 7.5
 
 TITLEBAR_HEIGHT = 32
 CAPTION_WIDTH = 46

@@ -18,6 +18,8 @@ from utilities import BUTTON_GAP
 from utilities import BUTTON_HEIGHT
 from utilities import BUTTON_PAD
 from utilities import CARD_HEIGHT
+from utilities import CHIP_FONT
+from utilities import CHIP_PAD
 from utilities import HEADER_BAND
 from utilities import PANEL_GAP
 from utilities import PANEL_MARGIN
@@ -292,7 +294,13 @@ def get_button_width(text):
     return get_text_width(get_font(BUTTON_FONT), text) + BUTTON_PAD * 2
 
 
-def draw_button(gc, theme, rect, text, state='plain', tone=None):
+def get_chip_width(text):
+    # from the ink, so both sides keep the same pad
+    ink_left, ink_right = get_ink_span(get_font(CHIP_FONT), text)
+    return ink_right - ink_left + 1 + CHIP_PAD * 2
+
+
+def draw_button(gc, theme, rect, text, state='plain', tone=None, chip=False):
     if state == 'lit':
         fill, edge, colour = theme['accent'], theme['accent'], theme['on_accent']
     else:
@@ -305,7 +313,14 @@ def draw_button(gc, theme, rect, text, state='plain', tone=None):
     gc.SetBrush(wx.Brush(wx.Colour(fill)))
     gc.DrawRoundedRectangle(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1,
                             PANEL_RADIUS)
-    draw_text_in(gc, text, rect, get_font(BUTTON_FONT), colour, back=fill)
+    if chip:
+        # the ink the width came from: one measured on the face colours can miss thin strokes
+        font = get_font(CHIP_FONT)
+        gc.SetFont(font, wx.Colour(colour))
+        gc.DrawText(text, rect.x + CHIP_PAD - get_ink_span(font, text)[0],
+                    get_text_top(font, rect.y, rect.height))
+    else:
+        draw_text_in(gc, text, rect, get_font(BUTTON_FONT), colour, back=fill)
 
 
 def draw_row_face(gc, theme, width, height, first, last):
