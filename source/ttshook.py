@@ -234,10 +234,18 @@ def on_stop(sid, path):
     speak_detached(get_prefix(session) + text, voice)
 
 
+def to_windows_path(path):
+    # Claude Code in WSL hands over the transcript as a path inside the distro
+    distro = os.environ.get('WSL_DISTRO_NAME')
+    if path and path.startswith('/') and distro:
+        return f'\\\\wsl.localhost\\{distro}' + path.replace('/', '\\')
+    return path
+
+
 def main():
     event = sys.argv[1] if len(sys.argv) > 1 else ''
     hook = read_hook()
-    path = hook.get('transcript_path')
+    path = to_windows_path(hook.get('transcript_path'))
     sid = hook.get('session_id') or (os.path.splitext(os.path.basename(path))[0] if path else '')
     if not sid:
         return
