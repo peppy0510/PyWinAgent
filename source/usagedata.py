@@ -170,7 +170,8 @@ def get_limits():
         share = as_dict(share)
         if isinstance(share.get('limit_index'), int):
             shares[share['limit_index']] = share
-    # verified Ultra accounts have no 5-hour limit, though the API still reports an idle one
+    # verified Ultra accounts have no 5-hour limit, yet the API still counts one and nothing
+    # says whether this account is verified; is_active only marks the tightest limit
     ultra = get_plan_name() == 'Ultra'
     limits = []
     for order, item in get_limit_items(body):
@@ -179,16 +180,16 @@ def get_limits():
         remains = get_reset_seconds(item.get('resets_at'))
         if remains is None and not percent:
             continue
-        if ultra and kind == 'session' and not item.get('is_active'):
-            continue
         name = LIMIT_NAMES.get(kind)
         if name is None:
             model = as_dict(as_dict(item.get('scope')).get('model'))
             name = f'Weekly · {as_text(model.get("display_name")) or kind or "scoped"}'
         window = SESSION_WINDOW if kind == 'session' else WEEKLY_WINDOW
-        limit = {'name': name, 'percent': percent,
-                 'severity': as_text(item.get('severity')) or 'normal',
+        severity = as_text(item.get('severity')) or 'normal'
+        limit = {'name': name, 'percent': percent, 'severity': severity,
                  'remains': remains, 'window': window}
+        if ultra and kind == 'session' and severity == 'normal' and percent < 100:
+            limit['relaxed'] = True
         cap = as_float(shares.get(order, {}).get('allowance_percent_of_weekly'))
         if cap is not None:
             limit['cap'] = cap

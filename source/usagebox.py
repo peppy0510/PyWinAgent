@@ -1152,7 +1152,7 @@ class UsageBox(ScrollArea):
     def draw_limit(self, p, limit, x, y, width):
         tint = self.get_tint(limit)
         stale = limit.get('stale')
-        p.fade = 0.45 if stale else 0.0
+        p.fade = 0.45 if stale or limit.get('relaxed') else 0.0
         name = limit['name']
         if name.startswith('Codex · '):
             name = name[len('Codex · '):]
@@ -1168,6 +1168,8 @@ class UsageBox(ScrollArea):
             cap = f'{int(limit["of_weekly"])}% of weekly · cap {int(limit["cap"])}%'
         when = (cap + ' · ' if cap else '') + (limit.get('when') or '') + (' · ' + clock(limit['reset_at'])
                                             if limit.get('reset_at') else '')
+        if limit.get('relaxed'):
+            when = 'Ultra: likely not enforced · ' + when
         if stale:
             when += ' · cached'
         p.text_on(when, x + name_width + 8, base, NOTE, 'dim', limit=right - 8 - (x + name_width + 8))
