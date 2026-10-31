@@ -5,3 +5,4 @@ __pycache__/
 .build
 source/.dist
 source/.build
+desktop.ini
