@@ -228,6 +228,7 @@ class TtsBox(ScrollArea):
         self.hook.set_caption('Remove' if state == 'installed' else 'Install')
         self.hook.set_description({
             'installed': 'Claude Code calls this app when a reply ends',
+            'partial': 'Missing in Claude Code on Windows or WSL · install to add it',
             'toolkit': 'The agent toolkit reads replies now · install to take over',
             'missing': 'Not installed in Claude Code',
         }[state])

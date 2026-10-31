@@ -6,7 +6,8 @@ author: Taehong Kim
 email: peppy0510@hotmail.com
 
 description:
-Installs the read-aloud hooks into Claude Code and takes the read-aloud hotkey
+Installs the read-aloud hooks into Claude Code, on Windows and in the default WSL
+distro, and takes the read-aloud hotkey
 over from the agent toolkit. Whatever the toolkit had registered is kept aside
 and put back when the feature is turned off.
 '''
@@ -14,6 +15,7 @@ and put back when the feature is turned off.
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -22,8 +24,11 @@ import psutil
 
 import ttsconfig
 
+from usageindex import in_wsl
+
 
 CLAUDE_SETTINGS = os.path.join(os.path.expanduser('~'), '.claude', 'settings.json')
+WSL_SETTINGS = in_wsl('.claude', 'settings.json')
 BACKUP_DIR = os.path.join(ttsconfig.APPDATA, 'PyWinAgent', 'legacy')
 HOOK_BACKUP = os.path.join(BACKUP_DIR, 'claude-hooks.json')
 HOOK_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ttshook.py')
@@ -47,9 +52,30 @@ def get_command(argument):
     return f'& "{get_python()}" "{HOOK_SCRIPT}" {argument}'
 
 
-def read_settings():
+def get_wsl_command(argument):
+    # sh runs the hook; the distro name lets the hook reach the transcript from Windows
+    python = shlex.quote(get_python())
+    return (f'WSLENV=WSL_DISTRO_NAME:$WSLENV "$(wslpath -u {python})" '
+            f'{shlex.quote(HOOK_SCRIPT)} {argument}')
+
+
+def get_hook(path, argument):
+    if path == CLAUDE_SETTINGS:
+        return {'type': 'command', 'shell': 'powershell', 'async': True,
+                'timeout': HOOK_TIMEOUT, 'command': get_command(argument)}
+    return {'type': 'command', 'async': True,
+            'timeout': HOOK_TIMEOUT, 'command': get_wsl_command(argument)}
+
+
+def get_targets():
+    # only where Claude Code has been run, so WSL without it is left alone
+    return [CLAUDE_SETTINGS] + [path for path in WSL_SETTINGS
+                                if os.path.isdir(os.path.dirname(path))]
+
+
+def read_settings(path=CLAUDE_SETTINGS):
     try:
-        with open(CLAUDE_SETTINGS, encoding='utf-8') as file:
+        with open(path, encoding='utf-8') as file:
             settings = json.load(file)
     except FileNotFoundError:
         return {}
@@ -87,51 +113,65 @@ def take_hooks(groups, keep):
     return result, taken
 
 
-def get_hook_state():
-    hooks = read_settings().get('hooks') or {}
-    ours = any(is_ours(hook) for groups in hooks.values()
+def has_ours(path):
+    hooks = read_settings(path).get('hooks') or {}
+    return any(is_ours(hook) for groups in hooks.values()
                for group in groups for hook in group.get('hooks') or [])
+
+
+def get_hook_state():
+    installed = [has_ours(path) for path in get_targets()]
+    if all(installed):
+        return 'installed'
+    if any(installed):
+        return 'partial'
+    hooks = read_settings().get('hooks') or {}
     toolkit = any(is_toolkit(hook, argument) for event, argument in HOOK_EVENTS.items()
                   for group in hooks.get(event) or [] for hook in group.get('hooks') or [])
-    return 'installed' if ours else 'toolkit' if toolkit else 'missing'
+    return 'toolkit' if toolkit else 'missing'
 
 
 def install_hooks():
-    settings = read_settings()
-    hooks = settings.setdefault('hooks', {})
-    backup = {}
-    for event, argument in HOOK_EVENTS.items():
-        groups = hooks.get(event) or []
-        groups, _ = take_hooks(groups, lambda hook: not is_ours(hook))
-        groups, taken = take_hooks(groups, lambda hook: not is_toolkit(hook, argument))
-        if taken:
-            backup[event] = taken
-        groups.append({'matcher': '', 'hooks': [{
-            'type': 'command', 'shell': 'powershell', 'async': True,
-            'timeout': HOOK_TIMEOUT, 'command': get_command(argument)}]})
-        hooks[event] = groups
-    if backup and not os.path.exists(HOOK_BACKUP):
-        write_json(HOOK_BACKUP, backup)
-    write_json(CLAUDE_SETTINGS, settings)
+    for path in get_targets():
+        settings = read_settings(path)
+        hooks = settings.setdefault('hooks', {})
+        backup = {}
+        for event, argument in HOOK_EVENTS.items():
+            groups = hooks.get(event) or []
+            groups, _ = take_hooks(groups, lambda hook: not is_ours(hook))
+            if path == CLAUDE_SETTINGS:
+                groups, taken = take_hooks(groups,
+                                           lambda hook: not is_toolkit(hook, argument))
+                if taken:
+                    backup[event] = taken
+            groups.append({'matcher': '', 'hooks': [get_hook(path, argument)]})
+            hooks[event] = groups
+        if backup and not os.path.exists(HOOK_BACKUP):
+            write_json(HOOK_BACKUP, backup)
+        write_json(path, settings)
 
 
 def remove_hooks():
-    settings = read_settings()
-    hooks = settings.get('hooks') or {}
-    for event in list(hooks):
-        groups, _ = take_hooks(hooks[event], lambda hook: not is_ours(hook))
-        if groups:
-            hooks[event] = groups
-        else:
-            del hooks[event]
-    try:
-        with open(HOOK_BACKUP, encoding='utf-8') as file:
-            backup = json.load(file)
-    except (OSError, ValueError):
-        backup = {}
-    for event, taken in backup.items():
-        hooks.setdefault(event, []).append({'matcher': '', 'hooks': taken})
-    write_json(CLAUDE_SETTINGS, settings)
+    for path in get_targets():
+        if not os.path.exists(path):
+            continue
+        settings = read_settings(path)
+        hooks = settings.get('hooks') or {}
+        for event in list(hooks):
+            groups, _ = take_hooks(hooks[event], lambda hook: not is_ours(hook))
+            if groups:
+                hooks[event] = groups
+            else:
+                del hooks[event]
+        if path == CLAUDE_SETTINGS:
+            try:
+                with open(HOOK_BACKUP, encoding='utf-8') as file:
+                    backup = json.load(file)
+            except (OSError, ValueError):
+                backup = {}
+            for event, taken in backup.items():
+                hooks.setdefault(event, []).append({'matcher': '', 'hooks': taken})
+        write_json(path, settings)
     if os.path.exists(HOOK_BACKUP):
         os.remove(HOOK_BACKUP)
 
