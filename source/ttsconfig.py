@@ -52,7 +52,7 @@ DEFAULTS = {
     'end_fade_ms': 400,
     'fade_in_ms': 150,
     'fade_out_ms': 180,
-    'reverb': True,
+    'reverb': False,
     'reverb_wet': 0.1,
     'reverb_room': 0.32,
     'reverb_width': 0.6,
