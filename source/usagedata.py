@@ -15,8 +15,11 @@ import time
 import urllib.error
 import urllib.request
 
-from datetime import datetime
-
+from usageindex import as_dict
+from usageindex import as_epoch
+from usageindex import as_float
+from usageindex import as_list
+from usageindex import as_text
 from usageindex import in_wsl
 
 
@@ -34,6 +37,9 @@ CODEX_AUTHS = (os.path.join(os.path.expanduser('~'), '.codex', 'auth.json'),
 
 LIMIT_NAMES = {'session': '5-hour', 'weekly_all': 'Weekly'}
 
+# the older per-window fields, read when the limits list is missing
+LEGACY_LIMITS = (('five_hour', 'session'), ('seven_day', 'weekly_all'))
+
 # 2026-10-30: Max 5x became Max and Max 20x Ultra; the tokens still carry the old tier names
 PLAN_NAMES = {('max', '5'): 'Max', ('max', '20'): 'Ultra'}
 
@@ -50,10 +56,10 @@ def read_token(path):
             oauth = json.load(file)['claudeAiOauth']
     except Exception:
         return None, False
-    expires = oauth.get('expiresAt') or 0
-    if expires and expires / 1000.0 < time.time():
+    expires = as_epoch(oauth.get('expiresAt'))
+    if expires and expires < time.time():
         return None, True
-    return oauth.get('accessToken'), False
+    return as_text(oauth.get('accessToken')) or None, False
 
 
 def read_plan():
@@ -63,8 +69,9 @@ def read_plan():
                 oauth = json.load(file)['claudeAiOauth']
         except Exception:
             continue
-        if oauth.get('subscriptionType') or oauth.get('rateLimitTier'):
-            return oauth.get('subscriptionType') or '', oauth.get('rateLimitTier') or ''
+        kind, tier = as_text(oauth.get('subscriptionType')), as_text(oauth.get('rateLimitTier'))
+        if kind or tier:
+            return kind, tier
     return None
 
 
@@ -119,13 +126,24 @@ def ask_limits(token):
 
 
 def get_reset_seconds(stamp):
-    if not stamp:
+    moment = as_epoch(stamp)
+    if moment is None:
         return None
-    try:
-        moment = datetime.fromisoformat(stamp)
-    except ValueError:
-        return None
-    return max(0, moment.timestamp() - time.time())
+    return max(0, moment - time.time())
+
+
+def get_limit_items(body):
+    # numbered as the API lists them: weekly_scoped_shares points by that index
+    if isinstance(body.get('limits'), list):
+        return [(order, item) for order, item in enumerate(body['limits'])
+                if isinstance(item, dict)]
+    items = []
+    for key, kind in LEGACY_LIMITS:
+        window = as_dict(body.get(key))
+        if window:
+            items.append((None, {'kind': kind, 'percent': window.get('utilization'),
+                                 'resets_at': window.get('resets_at'), 'is_active': True}))
+    return items
 
 
 def get_limits():
@@ -141,34 +159,40 @@ def get_limits():
             body, error = ask_limits(token)
         if body:
             break
-    if not body:
+    if not isinstance(body, dict):
         last_error = error or ('expired' if expired else 'offline')
         return None
     last_error = None
 
     # a model-scoped weekly limit may only take its share of the weekly one
-    shares = {share.get('limit_index'): share for share in body.get('weekly_scoped_shares') or ()}
+    shares = {}
+    for share in as_list(body.get('weekly_scoped_shares')):
+        share = as_dict(share)
+        if isinstance(share.get('limit_index'), int):
+            shares[share['limit_index']] = share
     # verified Ultra accounts have no 5-hour limit, though the API still reports an idle one
     ultra = get_plan_name() == 'Ultra'
     limits = []
-    for order, item in enumerate(body.get('limits', [])):
-        percent = item.get('percent', 0)
-        resets = item.get('resets_at')
-        if not resets and not percent:
+    for order, item in get_limit_items(body):
+        kind = as_text(item.get('kind'))
+        percent = as_float(item.get('percent')) or 0
+        remains = get_reset_seconds(item.get('resets_at'))
+        if remains is None and not percent:
             continue
-        if ultra and item.get('kind') == 'session' and not item.get('is_active'):
+        if ultra and kind == 'session' and not item.get('is_active'):
             continue
-        name = LIMIT_NAMES.get(item.get('kind'))
+        name = LIMIT_NAMES.get(kind)
         if name is None:
-            scope = (item.get('scope') or {}).get('model') or {}
-            name = f'Weekly · {scope.get("display_name") or "scoped"}'
-        window = SESSION_WINDOW if item.get('kind') == 'session' else WEEKLY_WINDOW
-        limit = {'name': name, 'percent': percent, 'severity': item.get('severity', 'normal'),
-                 'remains': get_reset_seconds(resets), 'window': window}
-        share = shares.get(order)
-        if share and share.get('allowance_percent_of_weekly') is not None:
-            limit['cap'] = share['allowance_percent_of_weekly']
-            limit['of_weekly'] = share.get('used_percent_of_weekly') or 0
+            model = as_dict(as_dict(item.get('scope')).get('model'))
+            name = f'Weekly · {as_text(model.get("display_name")) or kind or "scoped"}'
+        window = SESSION_WINDOW if kind == 'session' else WEEKLY_WINDOW
+        limit = {'name': name, 'percent': percent,
+                 'severity': as_text(item.get('severity')) or 'normal',
+                 'remains': remains, 'window': window}
+        cap = as_float(shares.get(order, {}).get('allowance_percent_of_weekly'))
+        if cap is not None:
+            limit['cap'] = cap
+            limit['of_weekly'] = as_float(shares[order].get('used_percent_of_weekly')) or 0
         limits.append(limit)
     return limits
 
@@ -206,7 +230,7 @@ def get_codex_resets():
         body, error = ask_codex_resets(path)
         if body:
             break
-    if not body or not isinstance(body.get('credits'), list):
+    if not isinstance(body, dict) or not isinstance(body.get('credits'), list):
         codex_resets_error = error or 'offline'
         return None
     codex_resets_error = None
@@ -215,11 +239,8 @@ def get_codex_resets():
     for item in body['credits']:
         if not isinstance(item, dict) or item.get('status') != 'available':
             continue
-        try:
-            expires = datetime.fromisoformat(item['expires_at'].replace('Z', '+00:00')).timestamp()
-        except (KeyError, AttributeError, ValueError):
-            expires = None
-        credits.append({'expires': expires, 'title': item.get('title') or ''})
+        credits.append({'expires': as_epoch(item.get('expires_at')),
+                        'title': as_text(item.get('title'))})
     credits.sort(key=lambda credit: credit['expires'] or float('inf'))
     return credits
 
@@ -237,6 +258,7 @@ def format_remaining(seconds):
 
 
 def get_window_name(minutes):
+    minutes = as_float(minutes) or 0
     if minutes and minutes % 1440 == 0:
         return 'Weekly' if minutes == 10080 else f'{int(minutes // 1440)}-day'
     return f'{round((minutes or 0) / 60.0)}-hour'

@@ -301,25 +301,32 @@ def get_limits(index, options, fresh=False):
                 limits.append(dict(limit, provider='claude', share=share))
     if 'codex' in options['agents']:
         stored = index.get_meta('codex_limits') or {}
-        rates = stored.get('limits') or {}
+        rates = usageindex.as_dict(stored.get('limits'))
         defaults = ({'window_minutes': 300}, {'window_minutes': 10080})
+        # Pro plans have no 5-hour window (OpenAI pricing, 2026-10); a missing slot is no limit
+        pro = usageindex.as_text(rates.get('plan_type')).startswith('pro')
         history = get_history(index, 'codex')
         for slot, default in zip(('primary', 'secondary'), defaults):
+            if rates and not isinstance(rates.get(slot), dict):
+                continue
             window = rates.get(slot) or default
-            minutes = window.get('window_minutes') or default['window_minutes']
-            remains = (window.get('resets_at') or 0) - time.time()
+            minutes = usageindex.as_float(window.get('window_minutes')) or \
+                default['window_minutes']
+            if pro and minutes < 1440:
+                continue
+            resets_at = usageindex.as_epoch(window.get('resets_at'))
+            remains = (resets_at or 0) - time.time()
             name = 'Codex · ' + usagedata.get_window_name(minutes)
             if remains <= 0:
                 limits.append({'name': name, 'percent': 0, 'severity': 'normal',
                                'remains': None, 'window': minutes * 60, 'provider': 'codex',
                                'idle': 'starts with the next request'})
                 continue
-            percent = int(round(window.get('used_percent', 0)))
+            percent = int(round(usageindex.as_float(window.get('used_percent')) or 0))
             limits.append({'name': name, 'percent': percent,
                            'severity': 'normal', 'remains': remains, 'window': minutes * 60,
                            'provider': 'codex',
-                           'share': get_share(history, slot, percent, window['resets_at'],
-                                              minutes * 60)})
+                           'share': get_share(history, slot, percent, resets_at, minutes * 60)})
     now = time.time()
     for limit in limits:
         limit['when'] = limit.pop('idle', None) or usagedata.format_remaining(limit['remains'])
@@ -354,7 +361,7 @@ def get_plans(index, options):
                           'email': email})
     if 'codex' in options['agents']:
         stored = index.get_meta('codex_limits') or {}
-        kind = (stored.get('limits') or {}).get('plan_type')
+        kind = usageindex.as_text(usageindex.as_dict(stored.get('limits')).get('plan_type'))
         if kind:
             account, email = usagedata.get_codex_account()
             plans.append({'provider': 'codex', 'name': kind.replace('_', ' ').title(),

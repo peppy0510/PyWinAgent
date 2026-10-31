@@ -234,6 +234,45 @@ def to_number(value):
     return value if isinstance(value, (int, float)) and value > 0 else 0
 
 
+# the plan-limit payloads are undocumented and change shape without notice: read them through these
+def as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def as_list(value):
+    return value if isinstance(value, list) else []
+
+
+def as_text(value):
+    return value if isinstance(value, str) else ''
+
+
+def as_float(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return None
+    if isinstance(value, (int, float)) and value == value and abs(value) != float('inf'):
+        return float(value)
+    return None
+
+
+def as_epoch(value):
+    # seconds since the epoch, from seconds, milliseconds or an ISO stamp
+    number = as_float(value)
+    if number is None and isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            return None
+    if number is None or number <= 0:
+        return None
+    return number / 1000.0 if number > 1e11 else number
+
+
 def get_project(cwd):
     if not cwd:
         return ''
@@ -303,10 +342,11 @@ class Indexer:
 
     def add_limits(self, stamp, rates):
         for name in ('primary', 'secondary'):
-            window = rates.get(name) or {}
-            if window.get('resets_at'):
+            window = as_dict(as_dict(rates).get(name))
+            resets_at = as_epoch(window.get('resets_at'))
+            if resets_at:
                 self.limits.append((self.provider, name, int(stamp),
-                                    window.get('used_percent') or 0, int(window['resets_at'])))
+                                    as_float(window.get('used_percent')) or 0, int(resets_at)))
 
     def flush(self):
         if self.entries:
@@ -426,7 +466,7 @@ def read_codex_line(indexer, line):
         info = payload.get('info') or {}
         state['context_max'] = to_number(info.get('model_context_window')) or \
             state.get('context_max', 0)
-        if payload.get('rate_limits'):
+        if isinstance(payload.get('rate_limits'), dict):
             state['rate_limits'] = payload['rate_limits']
             state['rate_stamp'] = stamp
             indexer.add_limits(stamp, payload['rate_limits'])
