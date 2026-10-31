@@ -602,7 +602,6 @@ class BandHeader(PanelHeader):
         self.plans = []
         self.marked = None
         self.down_zone = None
-        self.UnsetToolTip()
         self.update_height()
 
     def update_height(self):
@@ -666,12 +665,13 @@ class BandHeader(PanelHeader):
         zone = self.get_zone(event.GetPosition())
         if zone != self.marked:
             self.marked = zone
-            if zone == 'fold':
-                self.SetToolTip('Unfold' if self.folded else 'Fold')
-            else:
-                self.UnsetToolTip()
             self.Refresh()
         super().on_track(event)
+
+    def get_tip(self, position):
+        if self.get_zone(position) != 'fold':
+            return None
+        return 'Unfold' if self.folded else 'Fold'
 
     def on_down(self, event):
         self.down_zone = self.get_zone(event.GetPosition())

@@ -12,6 +12,8 @@ import time
 import re
 import wx
 
+from hovertip import hide_hover_tip
+from hovertip import show_hover_tip
 from utilities import BAND_INSET
 from utilities import BUTTON_FONT
 from utilities import BUTTON_GAP
@@ -348,14 +350,33 @@ class PanelHeader(Pressable):
         self.title = title.upper()
         self.subtitle = subtitle
         self.folded = False
-        self.SetToolTip('Fold')
         self.update_height()
 
     def set_folded(self, folded):
         self.folded = folded
-        self.SetToolTip('Unfold' if folded else 'Fold')
         self.update_height()
         self.Refresh()
+
+    # the themed readout: the native tooltip stays light in the dark theme
+    def get_tip(self, position):
+        return ('Unfold' if self.folded else 'Fold') if self.hits(position) else None
+
+    def on_track(self, event):
+        tip = None if self.holding else self.get_tip(event.GetPosition())
+        if tip:
+            show_hover_tip(self, self.theme, [(tip, 'text')],
+                           self.ClientToScreen(event.GetPosition()))
+        else:
+            hide_hover_tip(self)
+        super().on_track(event)
+
+    def on_down(self, event):
+        hide_hover_tip(self)
+        super().on_down(event)
+
+    def on_leave(self, event):
+        hide_hover_tip(self)
+        super().on_leave(event)
 
     def set_subtitle(self, subtitle):
         if subtitle != self.subtitle:
