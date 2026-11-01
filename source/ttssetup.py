@@ -31,6 +31,8 @@ LXSS_KEY = r'Software\Microsoft\Windows\CurrentVersion\Lxss'
 BACKUP_DIR = os.path.join(ttsconfig.APPDATA, 'PyWinAgent', 'legacy')
 HOOK_BACKUP = os.path.join(BACKUP_DIR, 'claude-hooks.json')
 HOOK_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ttshook.py')
+HOOK_FLAG = '--hook'
+HOOK_EXE = 'PyWinAgent.exe'
 
 HOOK_EVENTS = {'UserPromptSubmit': 'prompt', 'Stop': 'stop'}
 HOOK_TIMEOUT = 30
@@ -48,14 +50,20 @@ def get_python():
 
 
 def get_command(argument):
+    # the packaged exe runs the hook itself; its scripts sit in a folder gone after it exits
+    if hasattr(sys, 'frozen'):
+        return f'& "{sys.executable}" {HOOK_FLAG} {argument}'
     return f'& "{get_python()}" "{HOOK_SCRIPT}" {argument}'
 
 
 def get_wsl_command(argument):
     # sh runs the hook; the distro name lets the hook reach the transcript from Windows
-    python = shlex.quote(get_python())
-    return (f'WSLENV=WSL_DISTRO_NAME:$WSLENV "$(wslpath -u {python})" '
-            f'{shlex.quote(HOOK_SCRIPT)} {argument}')
+    if hasattr(sys, 'frozen'):
+        program, script = shlex.quote(sys.executable), HOOK_FLAG
+    else:
+        program, script = shlex.quote(get_python()), shlex.quote(HOOK_SCRIPT)
+    return (f'WSLENV=WSL_DISTRO_NAME:$WSLENV "$(wslpath -u {program})" '
+            f'{script} {argument}')
 
 
 def get_hook(path, argument):
@@ -138,7 +146,8 @@ def write_json(path, data):
 
 
 def is_ours(hook):
-    return 'ttshook.py' in (hook.get('command') or '')
+    command = hook.get('command') or ''
+    return 'ttshook.py' in command or (HOOK_EXE in command and f' {HOOK_FLAG} ' in command)
 
 
 def is_toolkit(hook, argument):

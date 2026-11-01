@@ -129,7 +129,7 @@ def read_selection(held):
     time.sleep(0.12)
     text = read_clipboard()
     if text.strip():
-        command = [ttsconfig.get_pythonw(), ttsconfig.SPEAK_SCRIPT, '--interrupt', '--text', text]
+        command = ttsconfig.get_speak_command() + ['--interrupt', '--text', text]
         subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          creationflags=subprocess.CREATE_NO_WINDOW)
 

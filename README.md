@@ -17,9 +17,11 @@
 
 ## How to install
 
-* Download or clone a repository, install Python packages in the requirements.pip file, then execute source/main.pyw with pythonw.exe. Python 3.x is required.
+* Just download and install the latest release.
+* Alternatively, if you like to build your own, download or clone a repository then execute makebuild.py. Python 3.x, Python packages in the requirements.pip file, PyInstaller and Inno Setup are required.
+* To run from the source, install Python packages in the requirements.pip file, then execute source/main.pyw with pythonw.exe.
 * The voice model (about 400 MB) downloads on first use into %LOCALAPPDATA%\PyWinAgent\supertonic3. Clone voices go in %APPDATA%\PyWinAgent\voices.
-* `pythonw source/ttsspeak.py --text "..."` reads text aloud from the command line.
+* `pythonw source/ttsspeak.py --text "..."` reads text aloud from the command line, or `PyWinAgent.exe --speak --text "..."` once installed.
 * Execute source/makeshortcut.py to put a shortcut in the Start menu.
 
 ## Supported platforms

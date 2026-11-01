@@ -1,6 +1,7 @@
 numpy
 pillow
 psutil
+pyinstaller
 pywin32
 supertonic
 wxpython

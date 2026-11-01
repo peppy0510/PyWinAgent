@@ -11,6 +11,7 @@ import ctypes
 import json
 import math
 import os
+import sys
 import wx
 
 from ctypes import wintypes
@@ -210,6 +211,8 @@ def get_frame_margins(window):
 
 
 def get_asset_path(*parts):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, 'assets', *parts)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(root, 'assets', *parts)
 

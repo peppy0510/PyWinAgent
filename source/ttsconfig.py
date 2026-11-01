@@ -183,8 +183,15 @@ def get_pythonw():
     return path if os.path.exists(path) else sys.executable
 
 
+def get_speak_command():
+    # the packaged exe speaks through itself: its scripts sit in a folder gone after it exits
+    if hasattr(sys, 'frozen'):
+        return [sys.executable, '--speak']
+    return [get_pythonw(), SPEAK_SCRIPT]
+
+
 def preview(voice, text=SAMPLE_TEXT):
-    command = [get_pythonw(), SPEAK_SCRIPT, '--text', text, '--interrupt']
+    command = get_speak_command() + ['--text', text, '--interrupt']
     if voice:
         command += ['--voice', voice]
     try:

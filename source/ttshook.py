@@ -211,7 +211,7 @@ def get_prefix(session):
 
 
 def speak_detached(text, voice):
-    command = [ttsconfig.get_pythonw(), ttsconfig.SPEAK_SCRIPT, '--text', text]
+    command = ttsconfig.get_speak_command() + ['--text', text]
     if voice:
         command += ['--voice', voice]
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP

@@ -30,6 +30,14 @@ def get_current_process():
             return p
 
 
+def is_helper(process):
+    # the packaged exe started as the hook or the speaker is not a running window
+    try:
+        return any(flag in process.cmdline() for flag in ('--hook', '--speak'))
+    except Exception:
+        return False
+
+
 def get_source_path():
     return str(Path(__file__).resolve().parent)
 
@@ -46,7 +54,7 @@ def has_running_instance():
 
         if hasattr(sys, '_MEIPASS'):
             cp = get_current_process()
-            if cp is not None and cp.name() == p.name():
+            if cp is not None and cp.name() == p.name() and not is_helper(p):
                 return True
             continue
 
