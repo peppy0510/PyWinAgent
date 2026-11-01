@@ -33,7 +33,8 @@ from utilities import save_settings
 
 
 TICK_INTERVAL = 150
-DEFAULT_SIZE = (460, 720)
+DEFAULT_SIZE = (480, 720)
+MIN_SIZE = (360, 480)
 
 MENU_ITEMS = (('Usage', 'chart'), ('TTS', 'sound'), None, ('Settings', 'settings'))
 
@@ -83,6 +84,7 @@ class MainFrame(wx.Frame):
         super().__init__(None, title=APP_NAME, size=wx.Size(*DEFAULT_SIZE),
                          style=FRAME_STYLE)
         apply_no_caption(self)
+        self.SetMinSize(wx.Size(*MIN_SIZE))
 
         self.theme_name = self.resolve_theme(settings.get('theme', 'dark'))
         theme = THEMES[self.theme_name]
@@ -246,6 +248,7 @@ class MainFrame(wx.Frame):
             self.close_widget()
         if values['tray_icon'] and self.tray is None:
             self.tray = TrayIcon(self)
+            self.update_tray()
         elif not values['tray_icon'] and self.tray is not None:
             self.remove_tray()
         self.store_settings()
@@ -254,6 +257,7 @@ class MainFrame(wx.Frame):
         self.last_data = data
         if self.widget is not None:
             self.widget.update(data)
+        self.update_tray()
 
     def set_projects(self, key):
         self.usagebox.set_project_list(key, [])
@@ -282,6 +286,34 @@ class MainFrame(wx.Frame):
         self.Show()
         self.Raise()
         self.SetFocus()
+
+    def hide_window(self):
+        self.ttsbox.flush()
+        if self.IsIconized() is False and self.IsMaximized() is False:
+            self.stored_rect = list(self.GetRect())
+        self.store_settings()
+        # a second launch may have shown the window behind wx's back
+        self.Show(True)
+        self.Hide()
+
+    def toggle_tts(self, key):
+        self.ttsbox.cards[key].activate()
+        self.ttsbox.flush()
+
+    def get_tray_items(self):
+        widget, cards = self.settingsbox.widget, self.ttsbox.cards
+        return [('Floating usage widget', widget.activate, widget.GetValue()),
+                ('Speak notifications', lambda: self.toggle_tts('notify'),
+                 cards['notify'].GetValue()),
+                ('Read-aloud hotkey', lambda: self.toggle_tts('readaloud'),
+                 cards['readaloud'].GetValue())]
+
+    def update_tray(self):
+        if self.tray is None or not self.last_data:
+            return
+        limits = self.last_data.get('limits') or []
+        self.tray.set_tip('\n'.join(f'{limit["name"]} {int(limit["percent"])}%'
+                                     for limit in limits))
 
     def on_size(self, event):
         self.sidemenu.place(TitleBar.HEIGHT)
@@ -330,13 +362,7 @@ class MainFrame(wx.Frame):
         if (self.tray is not None and values['close_to_tray'] and not self.quitting
                 and event.CanVeto()):
             event.Veto()
-            self.ttsbox.flush()
-            if self.IsIconized() is False and self.IsMaximized() is False:
-                self.stored_rect = list(self.GetRect())
-            self.store_settings()
-            # a second launch may have shown the window behind wx's back
-            self.Show(True)
-            self.Hide()
+            self.hide_window()
             return
         self.pacer.running = False
         # the drawer's capture and slide timer crash a closing frame (0xc0000374)
