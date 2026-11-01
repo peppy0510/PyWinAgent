@@ -31,6 +31,7 @@ from utilities import ROUND_SIZE
 from utilities import Canvas
 from utilities import apply_clip_siblings
 from utilities import draw_chevron
+from utilities import fill_rounded
 from utilities import draw_frame
 from utilities import draw_text_in
 from utilities import fill_rect
@@ -174,8 +175,8 @@ class RoundButton(Pressable):
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(self.get_fill(key)))
         if self.square:
-            gc.DrawRoundedRectangle(cx - radius, cy - radius,
-                                    radius * 2, radius * 2, self.CORNER)
+            fill_rounded(gc, self.get_fill(key), cx - radius, cy - radius,
+                         radius * 2, radius * 2, self.CORNER)
         else:
             gc.DrawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
 
@@ -288,10 +289,6 @@ class RoundButton(Pressable):
         gc.FillPath(path)
 
 
-def get_pen(gc, colour, width=1):
-    return gc.CreatePen(wx.GraphicsPenInfo(wx.Colour(colour)).Width(width))
-
-
 def get_button_width(text):
     return get_text_width(get_font(BUTTON_FONT), text) + BUTTON_PAD * 2
 
@@ -311,10 +308,10 @@ def draw_button(gc, theme, rect, text, state='plain', tone=None, chip=False):
         edge, colour = theme['edge'], theme['text']
         if tone == 'warn':
             edge = colour = theme['warn']
-    gc.SetPen(get_pen(gc, edge))
-    gc.SetBrush(wx.Brush(wx.Colour(fill)))
-    gc.DrawRoundedRectangle(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1,
-                            PANEL_RADIUS)
+    # the edge as a ring of its own, the fill 1px inside it
+    fill_rounded(gc, edge, rect.x, rect.y, rect.width, rect.height, PANEL_RADIUS)
+    fill_rounded(gc, fill, rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2,
+                 PANEL_RADIUS - 1)
     if chip:
         # the ink the width came from: one measured on the face colours can miss thin strokes
         font = get_font(CHIP_FONT)

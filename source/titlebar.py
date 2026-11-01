@@ -15,6 +15,7 @@ from utilities import APP_NAME
 from utilities import CAPTION_WIDTH
 from utilities import TITLEBAR_HEIGHT
 from utilities import Canvas
+from utilities import fill_rounded
 from utilities import get_asset_path
 from utilities import get_font
 from utilities import get_frame_margins
@@ -184,10 +185,7 @@ class TitleBar(Canvas):
             fill = self.get_fill(name)
             if fill:
                 box = self.get_box(rect)
-                gc.SetPen(wx.TRANSPARENT_PEN)
-                gc.SetBrush(wx.Brush(wx.Colour(fill)))
-                gc.DrawRoundedRectangle(box.x, box.y, box.width, box.height,
-                                        BUTTON_RADIUS)
+                fill_rounded(gc, fill, box.x, box.y, box.width, box.height, BUTTON_RADIUS)
 
             colour = theme['text']
             if name == 'close' and self.hovered == name:
