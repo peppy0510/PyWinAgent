@@ -42,6 +42,10 @@ DRAG_EASE = 0.35
 REINDEX_NOTE = 'Rebuild the index from the record files'
 REINDEX_CONFIRM_MS = 6000
 
+UPDATE_NOTE = 'Look for a new release on GitHub'
+TRAY_NOTE = 'Also from the tray icon while the window is hidden'
+TRAY_NOTE_OFF = 'Needs the tray icon, under Window'
+
 
 class SettingsBox(ScrollArea):
 
@@ -98,6 +102,11 @@ class SettingsBox(ScrollArea):
         self.reindex_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, lambda event: self.disarm_reindex(), self.reindex_timer)
 
+        self.check_updates = toggle('Check for updates', 'Once a day, a notice when one is out')
+        self.tray_notice = toggle('Tray notification', TRAY_NOTE)
+        self.check_now = ActionCard(board, theme, 'Latest release', UPDATE_NOTE, 'Check now',
+                                    lambda: self.run('check_updates'))
+
         self.load(settings)
         self.build()
         self.bind_children()
@@ -124,6 +133,16 @@ class SettingsBox(ScrollArea):
             card.SetValue(key not in hidden)
         self.set_project_counts(len(settings.get('excluded_projects', [])),
                                 len(settings.get('hidden_projects', [])))
+        self.check_updates.SetValue(settings.get('update_check', True))
+        self.tray_notice.SetValue(settings.get('update_tray', True))
+        self.update_tray_note()
+
+    def update_tray_note(self):
+        # the balloon pops up from the tray icon
+        note = TRAY_NOTE if self.tray.GetValue() else TRAY_NOTE_OFF
+        if note != self.tray_notice.description:
+            self.tray_notice.description = note
+            self.tray_notice.Refresh()
 
     def set_project_counts(self, excluded, hidden):
         self.projects.description = (f'{int(excluded)} left out of every number' if excluded
@@ -154,6 +173,8 @@ class SettingsBox(ScrollArea):
         self.fill_layout()
 
         panels.append(self.add_panel('data', 'Data', (self.projects, self.hidden, self.reindex)))
+        panels.append(self.add_panel('updates', 'Updates',
+                                     (self.check_updates, self.tray_notice, self.check_now)))
         about = AboutCard(self.content, self.theme, f'{APP_NAME} {APP_VERSION}',
                           (APP_AUTHOR, APP_EMAIL), 'GitHub', self.on_home,
                           wx.Image(get_asset_path('icon', 'muteklab.png')))
@@ -304,6 +325,8 @@ class SettingsBox(ScrollArea):
             'usd_to_jpy': self.jpy.GetValue(),
             'section_order': list(self.order),
             'hidden_sections': [key for key, card in self.layout.items() if not card.GetValue()],
+            'update_check': self.check_updates.GetValue(),
+            'update_tray': self.tray_notice.GetValue(),
         }
 
     def get_sections(self):

@@ -42,9 +42,23 @@ def run_helper():
     return True
 
 
+def wait_for_previous():
+    # an update restarts the app; the new copy waits for the old one to go
+    if '--after' not in sys.argv:
+        return
+    import psutil
+    try:
+        pid = int(sys.argv[sys.argv.index('--after') + 1])
+        psutil.Process(pid).wait(10)
+    except (ValueError, IndexError, psutil.Error):
+        pass
+
+
 def main():
+    # the hook and the speaker never wait: Claude Code waits on the hook
     if run_helper():
         return
+    wait_for_previous()
     if not has_running_instance():
         launch()
     else:
