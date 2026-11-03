@@ -7,7 +7,9 @@ email: peppy0510@hotmail.com
 '''
 
 
+import makeshortcut
 import subprocess
+import sys
 import wx
 
 from controls import AboutCard
@@ -42,6 +44,8 @@ DRAG_EASE = 0.35
 REINDEX_NOTE = 'Rebuild the index from the record files'
 REINDEX_CONFIRM_MS = 6000
 
+SHORTCUT_OFF = 'Put a shortcut in the Start menu'
+SHORTCUT_ON = 'A shortcut is in the Start menu'
 UPDATE_NOTE = 'Look for a new release on GitHub'
 TRAY_NOTE = 'Also from the tray icon while the window is hidden'
 TRAY_NOTE_OFF = 'Needs the tray icon, under Window'
@@ -66,6 +70,13 @@ class SettingsBox(ScrollArea):
         self.close_to_tray = toggle('Close to tray',
                                     'Closing hides the window so the hotkey keeps working')
         self.autohide = toggle('Auto hide menu', 'Show the header only on hover')
+        # a source run only: an installed exe has the installer's Start menu entry
+        self.shortcut = None
+        if not getattr(sys, 'frozen', False):
+            self.shortcut = ActionCard(board, theme, 'Start menu', SHORTCUT_OFF, 'Create',
+                                       self.on_shortcut)
+            self.shortcut.set_captions('Remove')
+            self.update_shortcut()
         self.theme_choice = ChoiceCard(board, theme, 'Theme', 'Auto follows Windows',
                                        THEMES, on_change)
 
@@ -161,7 +172,8 @@ class SettingsBox(ScrollArea):
 
     def build(self):
         panels = [self.add_panel(key, title, cards) for key, title, cards in (
-            ('window', 'Window', (self.ontop, self.tray, self.close_to_tray, self.autohide)),
+            ('window', 'Window', tuple(card for card in (self.ontop, self.tray, self.close_to_tray,
+                                                         self.autohide, self.shortcut) if card)),
             ('appearance', 'Appearance', (self.theme_choice, self.wide, self.elsewhere)),
             ('agents', 'Agents', tuple(self.agents.values())),
             ('widget', 'Widget', (self.widget,)),
@@ -183,6 +195,26 @@ class SettingsBox(ScrollArea):
                           wx.Image(get_asset_path('icon', 'muteklab.png')))
         panels.append(self.add_panel('about', 'About', (about,)))
         self.set_panels(panels)
+
+    def update_shortcut(self, note=None):
+        present = makeshortcut.has_start_menu()
+        self.shortcut.set_caption('Remove' if present else 'Create')
+        self.shortcut.set_description(note or (SHORTCUT_ON if present else SHORTCUT_OFF))
+
+    def on_shortcut(self):
+        try:
+            if makeshortcut.has_start_menu():
+                makeshortcut.remove_start_menu()
+                note = 'Shortcut removed'
+            else:
+                makeshortcut.create(makeshortcut.get_start_menu_paths()[0])
+                note = 'Shortcut created'
+        except Exception:
+            self.shortcut.set_description('Could not change the shortcut')
+            self.shortcut.set_tone('warn')
+            return
+        self.update_shortcut(note)
+        self.shortcut.set_tone('plain')
 
     def on_home(self):
         # explorer hands the link to the shell, so the browser does not inherit elevation
