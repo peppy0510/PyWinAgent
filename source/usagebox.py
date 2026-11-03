@@ -834,6 +834,7 @@ class UsageBox(ScrollArea):
             'rate': 1.0,
             'sections': None,
             'wide': True,
+            'elsewhere': True,
         }
         self.data = None
         self.drawn = False
@@ -1179,7 +1180,7 @@ class UsageBox(ScrollArea):
             p.fill(mix(self.palette['grid'], self.palette['dim'], 0.45), x, y,
                    width * limit['elapsed'] / 100.0, BAR_HEIGHT, BAR_RADIUS)
         used = width * min(100, max(0, limit['percent'])) / 100.0
-        share = limit.get('share')
+        share = limit.get('share') if self.options['elsewhere'] else None
         split = share and share['here'] + share['elsewhere'] >= 0.5
         # whole pixels: a gap on a fractional x smears into a grey 2 px band and back
         start = round(x)
@@ -1920,12 +1921,16 @@ class UsageBox(ScrollArea):
                       for key, value in options.items())
         layout = any(key in ('sections', 'wide') and self.options.get(key) != value
                      for key, value in options.items())
+        # only the limit cards draw it, from data already held
+        redraw = 'elsewhere' in options and self.options.get('elsewhere') != options['elsewhere']
         self.options.update(options)
         if layout:
             self.wide_columns = self.options['wide'] is not False
             self.apply_sections()
         if changed and self.ready:
             self.reload(force=True)
+        elif redraw:
+            self.refresh_bodies()
 
     def get_options(self):
         return {'hidden_projects': self.options['hidden'],

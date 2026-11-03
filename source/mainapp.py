@@ -249,7 +249,7 @@ class MainFrame(wx.Frame):
         self.usagebox.set_options(agents=values['agents'], currency=values['currency'],
                                   rate=self.settingsbox.get_rate(),
                                   sections=self.settingsbox.get_sections(),
-                                  wide=values['wide_layout'])
+                                  wide=values['wide_layout'], elsewhere=values['show_elsewhere'])
         self.settingsbox.set_wide(values['wide_layout'])
         self.ttsbox.set_wide(values['wide_layout'])
         if values['compact_widget'] and self.widget is None:

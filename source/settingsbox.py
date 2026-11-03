@@ -72,6 +72,8 @@ class SettingsBox(ScrollArea):
         self.agents = {key: toggle(label, description) for key, label, description in AGENTS}
 
         self.wide = toggle('Wide layout', 'Lay sections out in columns when the window is wide')
+        self.elsewhere = toggle('Show elsewhere',
+                                'Split plan limits into this device and other places')
         self.widget = toggle('Floating usage widget', 'Small always-on-top quota pace window')
 
         self.currency = ChoiceCard(board, theme, 'Currency', 'Money on the usage page',
@@ -119,6 +121,7 @@ class SettingsBox(ScrollArea):
         self.autohide.SetValue(settings.get('auto_hide_menu', False))
         self.theme_choice.SetValue(settings.get('theme', 'dark'))
         self.wide.SetValue(settings.get('wide_layout', True))
+        self.elsewhere.SetValue(settings.get('show_elsewhere', True))
         enabled = settings.get('agents', {})
         for key, card in self.agents.items():
             card.SetValue(enabled.get(key, True))
@@ -159,7 +162,7 @@ class SettingsBox(ScrollArea):
     def build(self):
         panels = [self.add_panel(key, title, cards) for key, title, cards in (
             ('window', 'Window', (self.ontop, self.tray, self.close_to_tray, self.autohide)),
-            ('appearance', 'Appearance', (self.theme_choice, self.wide)),
+            ('appearance', 'Appearance', (self.theme_choice, self.wide, self.elsewhere)),
             ('agents', 'Agents', tuple(self.agents.values())),
             ('widget', 'Widget', (self.widget,)),
             ('currency', 'Currency', (self.currency, self.krw, self.jpy)),
@@ -318,6 +321,7 @@ class SettingsBox(ScrollArea):
             'auto_hide_menu': self.autohide.GetValue(),
             'theme': self.theme_choice.GetValue(),
             'wide_layout': self.wide.GetValue(),
+            'show_elsewhere': self.elsewhere.GetValue(),
             'agents': self.get_agents(),
             'compact_widget': self.widget.GetValue(),
             'currency': self.currency.GetValue(),
