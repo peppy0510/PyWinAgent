@@ -160,7 +160,8 @@ def get_limits():
         if body:
             break
     if not isinstance(body, dict):
-        last_error = error or ('expired' if expired else 'offline')
+        last_error = error or ('expired' if expired else
+                               'signed_out' if body is None else 'offline')
         return None
     last_error = None
 

@@ -118,7 +118,11 @@ LOGIN_TEXT = {
     'missing': 'Claude Code was not found on this device.',
     'failed': 'Could not open the sign-in window.',
 }
-WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+SIGN_IN_REASONS = {
+    'expired': 'Claude sign-in token expired.',
+    'signed_out': 'Plan limits need a Claude Code sign-in; the Claude app sign-in is not enough.',
+}
+WEEKDAYS =('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
 
 DATA_OPTIONS = ('agents', 'hidden', 'excluded', 'currency', 'rate')
 
@@ -1094,8 +1098,8 @@ class UsageBox(ScrollArea):
         return y + PAD
 
     def draw_limit_note(self, p, x, y, width, status):
-        reason = ('Claude sign-in token expired.' if status.get('error') == 'expired'
-                  else 'Could not reach Claude for plan limits.')
+        reason = SIGN_IN_REASONS.get(status.get('error'),
+                                     'Could not reach Claude for plan limits.')
         if status.get('age') is None:
             shown = ' No earlier snapshot to show.'
         else:
@@ -1104,7 +1108,7 @@ class UsageBox(ScrollArea):
         action = None
         if self.login_state:
             action = LOGIN_TEXT.get(self.login_state, '')
-        elif status.get('error') == 'expired':
+        elif status.get('error') in SIGN_IN_REASONS:
             action = 'link'
         height = 6 + len(lines) * LINE[NOTE] + (4 + LINE[NOTE] if action else 0) + 6
         p.fill('sunken', x, y, width, height, PANEL_RADIUS)
